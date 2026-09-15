@@ -164,6 +164,33 @@
 .modal-msg { color: var(--color-text-2); font-size: 14px; line-height: 1.65; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 
+/* ---- 批量导入预览（REQ-013 / REQ-014）---- */
+.bi-item { border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 12px; margin-bottom: 12px; background: var(--color-surface-2); }
+.bi-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bi-head .select { width: auto; min-width: 104px; padding: 7px 10px; }
+.bi-head .bi-et { min-width: 122px; }
+.bi-head .input { width: auto; flex: 1; min-width: 140px; padding: 7px 10px; }
+.bi-imgs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.bi-img { max-width: 170px; max-height: 130px; border-radius: 8px; border: 1px solid var(--color-border); object-fit: contain; background: var(--color-surface); }
+.bi-sum { margin-top: 4px; padding-top: 12px; border-top: 1px dashed var(--color-border); font-size: 13px; color: var(--color-text-2); }
+.bi-meta { font-size: 13px; margin-bottom: 8px; }
+.bi-meta .ok { color: var(--color-success); }
+.bi-meta .warn { color: var(--color-warn); }
+.bi-bulkbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px dashed var(--color-border); }
+.bi-bulkbar-label { font-size: 13px; color: var(--color-text-2); }
+.bi-guide { margin-bottom: 10px; border: 1px dashed var(--color-border); border-radius: var(--radius-sm); padding: 8px 12px; background: var(--color-surface-2); }
+.bi-guide summary { cursor: pointer; font-size: 13px; color: var(--color-text-2); user-select: none; list-style: none; }
+.bi-guide summary::before { content: '▸ '; }
+.bi-guide[open] summary::before { content: '▾ '; }
+.bi-guide summary:hover { color: var(--color-text); }
+.bi-guide[open] summary { margin-bottom: 8px; }
+.bi-guide-body { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--color-text-2); line-height: 1.6; }
+.bi-guide-body code { background: var(--color-surface); padding: 1px 6px; border-radius: 6px; font-size: 12px; color: var(--color-text); }
+.bi-step b { color: var(--color-text); font-weight: 600; }
+.bi-guide-note { margin-top: 4px; color: var(--color-text-2); }
+.bi-guide-skip { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 13px; color: var(--color-text-2); cursor: pointer; user-select: none; }
+.bi-guide-skip input { accent-color: var(--color-primary); }
+
 /* ---- Toast ---- */
 .toast {
   position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%) translateY(12px) scale(0.97);

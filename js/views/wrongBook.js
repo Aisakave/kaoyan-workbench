@@ -92,6 +92,7 @@ const WrongBookView = (() => {
     if (tb) { switchTab(tb.getAttribute('data-tab')); return; }
     const rev = e.target.closest('[data-review]');
     if (rev) { openReview(rev.getAttribute('data-review')); return; }
+    if (e.target.closest('[data-bulkimport]')) { openBulkImport(); return; }
     if (e.target.closest('[data-add]')) openForm();
     const edit = e.target.closest('[data-edit]');
     if (edit) openForm(edit.getAttribute('data-edit'));
@@ -375,6 +376,187 @@ const WrongBookView = (() => {
     else Toast.show(r.permanent ? '又做错+1（已永久保留），下次 3 天后重学' : '又做错+1，下次 ' + (b > 0 ? b + ' 天' : '立即') + '重学');
   }
 
+  // ---- 批量导入（REQ-013）：选文件夹 → 按修改时间排序两两配对 → 预览确认 → 只新增写入 ----
+  // 首次引导跳过标记（独立于业务数据的 localStorage，不随备份导出）
+  const BULK_GUIDE_KEY = 'kylc:bulkGuide';
+
+  function openBulkImport() {
+    if (!localStorage.getItem(BULK_GUIDE_KEY)) { showBulkGuide(); return; }
+    pickBulkFolder();
+  }
+
+  // 首次使用引导（REQ-014）：先看 4 步流程再选文件夹；勾选「不再显示」后恢复快捷路径
+  function showBulkGuide() {
+    UI.openModal(UI.modalShell('批量导入 · 使用引导', `
+      <p class="modal-msg">第一次用别慌，照着下面 4 步做，当天错题一次就能导入完。</p>
+      ${bulkGuideStepsHTML()}
+      <p class="modal-msg bi-guide-note">配对规则：文件夹按修改时间排序，每两张图（题目图→解析图）合成一条错题，单张图单独成条。</p>
+      <label class="bi-guide-skip"><input type="checkbox" id="bi-guide-skip"> 下次直接选择文件夹（不再显示本引导）</label>
+    `, `
+      <button class="btn btn-ghost" data-close>取消</button>
+      <button class="btn btn-primary" id="bi-guide-go">选择文件夹开始</button>
+    `), { lock: true });
+    document.getElementById('bi-guide-go').onclick = () => {
+      if (document.getElementById('bi-guide-skip').checked) localStorage.setItem(BULK_GUIDE_KEY, '1');
+      UI.closeModal();
+      pickBulkFolder();
+    };
+  }
+
+  // 标准流程 4 步（引导弹窗与预览弹窗共用）
+  function bulkGuideStepsHTML() {
+    return `<div class="bi-guide-body">
+      <div class="bi-step"><b>① 学习前</b>：建文件夹 <code>2026-09-16-英语</code>（多科就建多个：<code>2026-09-16-英语</code>、<code>2026-09-16-专业课</code>）</div>
+      <div class="bi-step"><b>② 刷题时</b>：每道错题按「题目图→解析图」紧挨着粘贴</div>
+      <div class="bi-step"><b>③ 学习后</b>：选当天文件夹导入 → 科目/日期自动带出 → 错因默认其他（要改就改）→ 确认导入</div>
+      <div class="bi-step"><b>④ 之后</b>：每条点「编辑」补真正的知识点关键词和关键一步</div>
+    </div>`;
+  }
+
+  function pickBulkFolder() {
+    UI.pickFiles({ folder: true }, (files, filtered) => {
+      if (!files.length) {
+        Toast.show(filtered ? '所选均为非图片或超过 12MB 的文件' : '未选择图片', 'warn');
+        return;
+      }
+      files.sort((a, b) => (a.lastModified || 0) - (b.lastModified || 0));
+      const folderName = folderNameFrom(files);
+      const meta = parseFolderMeta(folderName);
+      const pairs = [];
+      for (let i = 0; i < files.length; i += 2) {
+        pairs.push({
+          imgs: files.slice(i, i + 2),
+          subject: meta.subject, title: folderName, errorType: 'other'
+        });
+      }
+      showBulkPreview(pairs, filtered, meta);
+    });
+  }
+
+  // 从 webkitRelativePath 取文件夹名（如 习题1）；多选无路径时回退空
+  function folderNameFrom(files) {
+    for (const f of files) {
+      const rel = f.webkitRelativePath || '';
+      const seg = rel.split('/');
+      if (seg.length > 1 && seg[0]) return seg[0];
+    }
+    return '';
+  }
+
+  // 文件夹名识别科目与日期（标准流程：YYYY-MM-DD-科目，如 2026-09-16-英语）；识别不到回退 math/空，不拦截
+  function parseFolderMeta(name) {
+    const n = (name || '').toLowerCase();
+    const subject = /英语|english/.test(n) ? 'english'
+      : /政治|politics|zhengzhi/.test(n) ? 'political'
+      : /专业|zhuanye/.test(n) ? 'pro'
+      : /数学|math/.test(n) ? 'math'
+      : 'math';
+    const m = n.match(/(\d{4})[-_.](\d{1,2})[-_.](\d{1,2})/);
+    const date = m ? `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}` : '';
+    return { subject, date };
+  }
+
+  function showBulkPreview(pairs, filtered, meta) {
+    let tempUrls = [];
+    function revokeAll() { tempUrls.forEach(u => URL.revokeObjectURL(u)); tempUrls = []; }
+
+    function renderPreview() {
+      revokeAll();
+      const subjectOpts = cur => SUBJECTS.map(s => `<option value="${s.key}" ${s.key === cur ? 'selected' : ''}>${s.name}</option>`).join('');
+      const etOpts = cur => ERROR_TYPES.map(t => `<option value="${t.key}" ${t.key === cur ? 'selected' : ''}>${t.label}</option>`).join('');
+      const metaName = SUBJECTS.find(s => s.key === meta.subject)?.name || '';
+      const metaParts = [];
+      if (meta.date) metaParts.push(`日期 ${meta.date}`);
+      if (meta.subject !== 'math') metaParts.push(`科目 ${metaName}`);
+      const metaTip = metaParts.length
+        ? `<span class="ok">已识别：${metaParts.join(' · ')}</span>`
+        : `<span class="warn">未识别到日期/科目，请手动设置（推荐文件夹名：2026-09-16-英语）</span>`;
+      UI.openModal(UI.modalShell('批量导入错题', `
+        <details class="bi-guide">
+          <summary>使用流程（每天这样，一次导入全搞定）▾</summary>
+          ${bulkGuideStepsHTML()}
+        </details>
+        <p class="modal-msg">已按修改时间两两配对：${pairs.length} 条。每对「题目图+答案图」合为一条错题；单张图单独成条。${filtered ? `<br><span class="text-danger">已跳过 ${filtered} 个非图片/超过 12MB 的文件。</span>` : ''}</p>
+        <div class="bi-meta">${metaTip}</div>
+        <div class="bi-bulkbar"><span class="bi-bulkbar-label">全部设为科目：</span>${SUBJECTS.map(s => `<button type="button" class="btn btn-sm btn-ghost" data-bisubject="${s.key}">${s.name}</button>`).join('')}</div>
+        ${pairs.map((p, i) => `
+          <div class="bi-item">
+            <div class="bi-head">
+              <span class="chip chip-sub">第 ${i + 1} 条 · ${p.imgs.length > 1 ? '题+答' : '单图'}</span>
+              <select class="select bi-subject" data-idx="${i}">${subjectOpts(p.subject)}</select>
+              <select class="select bi-et" data-idx="${i}">${etOpts(p.errorType)}</select>
+              <input class="input bi-title" data-idx="${i}" value="${esc(p.title)}" placeholder="知识点标题（可留空）">
+              <button class="btn btn-icon btn-danger-ghost btn-sm" data-remove="${i}" title="移除该条">${UI.icon('trash', 15)}</button>
+            </div>
+            <div class="bi-imgs">${p.imgs.map(f => `<img class="bi-img" src="${URL.createObjectURL(f)}" alt="">`).join('')}</div>
+          </div>`).join('')}
+        <div class="bi-sum">共 ${pairs.length} 条 · 确认后仅新增写入错题簿，不影响已有数据</div>
+      `, `
+        <button class="btn btn-ghost" data-close>取消</button>
+        <button class="btn btn-primary" id="bi-ok">确认导入 ${pairs.length} 条</button>
+      `), { lock: true, lg: true });
+      tempUrls = Array.from(document.querySelectorAll('.bi-img')).map(img => img.src);
+      // 取消：先释放临时预览 URL 再关弹窗（覆盖 bindModalEvents 默认绑定）
+      document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => { revokeAll(); UI.closeModal(); });
+      // 一键全部设为某科目
+      document.querySelectorAll('[data-bisubject]').forEach(b => b.onclick = () => {
+        document.querySelectorAll('.bi-subject').forEach(s => { s.value = b.getAttribute('data-bisubject'); });
+      });
+      // 移除条目：先读回已编辑的科目/标题再删，避免重渲染丢修改
+      document.querySelectorAll('[data-remove]').forEach(b => b.onclick = () => {
+        collectEdits(pairs);
+        pairs.splice(Number(b.getAttribute('data-remove')), 1);
+        renderPreview();
+      });
+      document.getElementById('bi-ok').onclick = () => {
+        collectEdits(pairs);
+        runBulkImport(pairs, revokeAll);
+      };
+    }
+    renderPreview();
+  }
+
+  function collectEdits(pairs) {
+    const sels = Array.from(document.querySelectorAll('.bi-subject'));
+    const ets = Array.from(document.querySelectorAll('.bi-et'));
+    const titles = Array.from(document.querySelectorAll('.bi-title'));
+    pairs.forEach((p, i) => {
+      if (sels[i]) p.subject = sels[i].value;
+      if (ets[i]) p.errorType = ets[i].value;
+      if (titles[i]) p.title = titles[i].value.trim();
+    });
+  }
+
+  async function runBulkImport(pairs, revokeAll) {
+    const okBtn = document.getElementById('bi-ok');
+    okBtn.disabled = true;
+    const total = pairs.length;
+    let done = 0;
+    for (const p of pairs) {
+      okBtn.textContent = `导入中 ${done + 1}/${total}…`;
+      const ids = [];
+      for (const f of p.imgs) {
+        const id = 'img_' + uid();
+        await Store.saveImage(id, f);
+        const thumb = await makeThumb(f);
+        if (thumb) await Store.saveThumb(id, thumb);
+        ids.push(id);
+      }
+      // created 取题目图文件修改时间，保证「按添加时间」能还原文件夹原始顺序
+      const ts = (p.imgs[0] && p.imgs[0].lastModified) || Date.now();
+      Controller.addWrongQuestion({
+        subject: p.subject, title: p.title,
+        errorTypes: [p.errorType || 'other'], customError: '', keyStep: '',
+        images: ids, created: ts, updated: ts
+      });
+      done++;
+    }
+    revokeAll();
+    UI.closeModal();
+    render();
+    Toast.show(`已导入 ${total} 条错题`);
+  }
+
   function openForm(id) {
     const s = Controller.getState();
     const existing = id ? s.wrongQuestions.find(x => x.id === id) : null;
@@ -477,7 +659,10 @@ const WrongBookView = (() => {
     el.innerHTML = `
       <div class="card-head">
         <div class="card-title"><span class="ico">${UI.icon('pencil', 15)}</span>错题簿 <span class="chip">共 ${total} 题</span> <span class="chip chip-err">永久 ${permanent}</span></div>
-        <button class="btn btn-primary" data-add>${UI.icon('plus', 15)} 收录错题</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost" data-bulkimport>${UI.icon('folder', 15)} 批量导入</button>
+          <button class="btn btn-primary" data-add>${UI.icon('plus', 15)} 收录错题</button>
+        </div>
       </div>
 
       <div class="tab-row">

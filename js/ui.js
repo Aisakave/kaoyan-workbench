@@ -120,6 +120,30 @@ const UI = (() => {
     input.click();
   }
 
+  // ---- 文件选择 => 原始 File 数组（不写库）：供批量导入等「先预览后落库」场景 ----
+  // opts: { folder: 是否选整个文件夹(webkitdirectory), single: 是否单选 }
+  // cb(files, filtered)：files=有效图片（已过滤非图片/超12MB），filtered=被过滤数量
+  function pickFiles(opts, cb) {
+    const o = opts || {};
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    if (!o.single) input.multiple = true;
+    if (o.folder && 'webkitdirectory' in input) input.setAttribute('webkitdirectory', '');
+    input.onchange = () => {
+      let filtered = 0;
+      const files = Array.from(input.files || []).filter(f => {
+        if (!f.type.startsWith('image/')) { filtered++; return false; }
+        if (f.size > 12 * 1024 * 1024) { filtered++; return false; }
+        return true;
+      });
+      input.remove();
+      cb(files, filtered);
+    };
+    document.body.appendChild(input);
+    input.click();
+  }
+
   async function hydrateThumbs(root) {
     const imgs = root.querySelectorAll('img.img-thumb');
     for (const img of imgs) {
@@ -255,7 +279,7 @@ const UI = (() => {
     });
   }
 
-  return { openModal, closeModal, confirm, icon, modalShell, thumbHTML, pickImages, hydrateThumbs, lightbox, lightboxById, releaseImage, applyTheme, themeToggleHTML, animateCounts };
+  return { openModal, closeModal, confirm, icon, modalShell, thumbHTML, pickImages, pickFiles, hydrateThumbs, lightbox, lightboxById, releaseImage, applyTheme, themeToggleHTML, animateCounts };
 })();
 
 // 关闭弹窗（事件绑定辅助）
