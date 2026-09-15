@@ -140,6 +140,8 @@ const UI = (() => {
       input.remove();
       cb(files, filtered);
     };
+    input.addEventListener('cancel', () => input.remove());
+    input.style.display = 'none';
     document.body.appendChild(input);
     input.click();
   }
