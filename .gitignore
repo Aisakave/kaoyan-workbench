@@ -1,0 +1,11 @@
+# gh CLI 工具与其配置（本机发布用，不上传）
+.tools/
+*gh-cli*
+
+# 本地浏览器运行时数据 / 缓存
+*.log
+.DS_Store
+Thumbs.db
+
+# 本地备份文件
+backup-*.json

@@ -1,0 +1,244 @@
+/* ===== ui.js =====
+   视图共享助手：弹窗、图片管理、文件选择转图片 */
+
+'use strict';
+
+const UI = (() => {
+  // ---- 线性描边图标（引用 index.html 内联 sprite，Lucide 风格）----
+  function icon(name, size = 16) {
+    return `<svg class="ico-svg" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
+  }
+  // ---- 缩略图对象URL缓存：避免重复读库，带上限、超限释放最旧 ----
+  const urlCache = new Map(); // id -> { url }
+  const URL_CACHE_MAX = 600;
+  function cacheURL(id, blob) {
+    URL.revokeObjectURL(urlCache.get(id) && urlCache.get(id).url);
+    const url = URL.createObjectURL(blob);
+    urlCache.set(id, { url });
+    while (urlCache.size > URL_CACHE_MAX) {
+      const oldest = urlCache.keys().next().value;
+      URL.revokeObjectURL(urlCache.get(oldest).url);
+      urlCache.delete(oldest);
+    }
+    return url;
+  }
+  function releaseImage(id) {
+    const rec = urlCache.get(id);
+    if (rec) { URL.revokeObjectURL(rec.url); urlCache.delete(id); }
+  }
+  // 优先缩略图，无缩略图（历史数据/旧备份）回退原图
+  function thumbURL(id) {
+    const rec = urlCache.get(id);
+    if (rec) return Promise.resolve(rec.url);
+    return Store.getThumb(id).then(b => b || Store.getImage(id))
+      .then(blob => blob ? cacheURL(id, blob) : '');
+  }
+
+  // ---- 弹窗 ----
+  function openModal(html, opts = {}) {
+    const mask = document.getElementById('modalMask');
+    mask.innerHTML = `
+      <div class="modal ${opts.lg ? 'modal-lg' : ''}">
+        ${html}
+      </div>`;
+    mask.hidden = false;
+    document.body.style.overflow = 'hidden';
+    mask.onclick = (e) => { if (e.target === mask && !opts.lock) closeModal(); };
+  }
+  function closeModal() {
+    const mask = document.getElementById('modalMask');
+    const modal = mask.querySelector('.modal');
+    if (modal) {
+      // 退出动画：WAAPI 反向 160ms；若动画期间已被新弹窗替换则不再清理
+      modal.animate([
+        { opacity: 1, transform: 'translateY(0) scale(1)' },
+        { opacity: 0, transform: 'translateY(8px) scale(0.98)' }
+      ], { duration: 160, easing: 'cubic-bezier(0.4, 0, 0.2, 1)' }).onfinish = () => {
+        if (!mask.contains(modal)) return;
+        mask.hidden = true;
+        mask.innerHTML = '';
+        document.body.style.overflow = '';
+      };
+    } else {
+      mask.hidden = true;
+      mask.innerHTML = '';
+      document.body.style.overflow = '';
+    }
+  }
+
+  // 自定义确认弹窗（替换原生 confirm）：opts = { title, message, okText, danger, onOk }
+  function confirm(opts) {
+    const okText = opts.okText || '删除';
+    const danger = opts.danger !== false;
+    openModal(modalShell(opts.title || '确认操作', `<p class="modal-msg">${opts.message}</p>`,
+      `<button class="btn btn-ghost" data-close>取消</button>
+       <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" id="confirm-ok">${okText}</button>`), { lock: true });
+    bindModalEvents();
+    document.getElementById('confirm-ok').onclick = () => { UI.closeModal(); if (opts.onOk) opts.onOk(); };
+  }
+
+  function modalShell(title, bodyHtml, footHtml) {
+    return `
+      <div class="modal-head">
+        <div class="modal-title">${title}</div>
+        <button class="btn btn-icon btn-ghost" data-close>${icon('x', 16)}</button>
+      </div>
+      ${bodyHtml}
+      ${footHtml ? `<div class="modal-foot">${footHtml}</div>` : ''}`;
+  }
+  // 关闭按钮绑定依赖该 mask 已渲染后调用
+
+  // ---- 图片：生成缩略图字符串（用于模板字符串），data-oid 由事件委托挂载 ----
+  function thumbHTML(blobId) {
+    return `<div class="img-wrap" data-oid="${esc(blobId)}">
+      <img class="img-thumb" data-oid="${esc(blobId)}" data-src="">
+      <button class="img-del" data-del="${esc(blobId)}" title="删除">${icon('x', 11)}</button>
+    </div>`;
+  }
+
+  // ---- 文件选择 => Blob -> IndexedDB，返回 blobId ----
+  function pickImages(cb, single) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    if (!single) input.multiple = true;
+    input.onchange = async () => {
+      const files = Array.from(input.files || []);
+      const ids = [];
+      for (const f of files) {
+        if (!f.type.startsWith('image/')) { Toast.show('只能选择图片文件', 'warn'); continue; }
+        if (f.size > 12 * 1024 * 1024) { Toast.show('单张图片过大（>12MB）', 'warn'); continue; }
+        const id = 'img_' + uid();
+        await Store.saveImage(id, f);
+        // 同步生成缩略图（压缩到小尺寸），列表加载用缩略图大幅降内存
+        const thumb = await makeThumb(f);
+        if (thumb) await Store.saveThumb(id, thumb);
+        ids.push(id);
+      }
+      cb(ids);
+    };
+    input.click();
+  }
+
+  async function hydrateThumbs(root) {
+    const imgs = root.querySelectorAll('img.img-thumb');
+    for (const img of imgs) {
+      if (img.dataset.src) continue;
+      const oid = img.getAttribute('data-oid');
+      if (!oid) continue;
+      const cached = urlCache.has(oid);
+      const url = await thumbURL(oid);
+      if (url) {
+        img.dataset.src = 'x';
+        // 首次从库读取才淡入，缓存命中直接显示不闪动
+        if (!cached) img.classList.add('thumb-in');
+        img.src = url;
+      }
+    }
+  }
+
+  // 点开看原图：列表只放缩略图，点击时才读原图放大
+  async function lightboxById(oid) {
+    if (!oid) return;
+    let blob = null;
+    try { blob = await Store.getImage(oid); } catch (e) { /* ignore */ }
+    if (blob) lightbox(URL.createObjectURL(blob));
+    else Toast.show('图片不存在', 'warn');
+  }
+
+  function lightbox(src) {
+    const box = document.createElement('div');
+    box.className = 'lightbox';
+    box.innerHTML = `<img src="${esc(src)}" alt="查看大图">`;
+    box.onclick = () => box.remove();
+    document.body.appendChild(box);
+  }
+
+  // ---- 外观双态：light=浅色 / dark=深色（REQ-010 日蚀式开关）----
+  const THEME_META = { light: '#4f7cf7', dark: '#101319' };
+  function applyTheme(mode) {
+    mode = mode === 'dark' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = mode;
+    document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute('content', THEME_META[mode]));
+    document.querySelectorAll('[data-theme-toggle]').forEach(b => {
+      b.classList.toggle('dark', mode === 'dark');
+      b.setAttribute('aria-pressed', mode === 'dark' ? 'true' : 'false');
+    });
+  }
+
+  // ---- 日蚀式月亮如意开关（天空×日月×云视差×星星）----
+  // 种子随机：保证两次渲染/双端实例的星星分布稳定，不闪变
+  function seedRand(seed) {
+    let s = (seed % 2147483647) || 1; if (s < 0) s += 2147483646;
+    return () => (s = (s * 16807) % 2147483647) / 2147483647;
+  }
+  function starHTML(rng, count) {
+    let out = '';
+    for (let i = 0; i < count; i++) {
+      const left = (14 + rng() * 72).toFixed(1);
+      const top = (10 + rng() * 72).toFixed(1);
+      // 被"吹出"：从右侧月亮侧飘出，--sx 表示起点偏移，配合曲径 keyframes 形成失重非直线
+      const sx = (16 + rng() * 50).toFixed(0);
+      const sy = (-16 + rng() * 34).toFixed(0);
+      const sz = (1.4 + rng() * 1.9).toFixed(1);
+      const twDur = (1.7 + rng() * 2.3).toFixed(2);
+      const twDel = (rng() * 2.5).toFixed(2);
+      const inDur = (0.5 + rng() * 0.6).toFixed(2);
+      const inDel = (rng() * 0.35).toFixed(2);
+      const bright = rng() > 0.7 ? ' bright' : '';
+      out += `<span class="tt-star" style="left:${left}%;top:${top}%;--tw-dur:${twDur}s;--tw-del:${twDel}s">`
+           + `<span class="tt-move" style="--sx:${sx}px;--sy:${sy}px;--in-dur:${inDur}s;--in-del:${inDel}s">`
+           + `<i class="tt-dot${bright}" style="--sz:${sz}px"></i></span></span>`;
+    }
+    return out;
+  }
+  function themeToggleHTML(mode = 'light', size = 'lg') {
+    const dark = mode === 'dark';
+    const rng = seedRand(size === 'sm' ? 7 : 19);
+    const stars = starHTML(rng, size === 'sm' ? 9 : 16);
+    return `<button class="theme-toggle tt-${size} ${dark ? 'dark' : ''}" data-theme-toggle
+              role="switch" aria-pressed="${dark}" aria-label="切换浅色/深色外观">
+      <span class="tt-track">
+        <i class="tt-cloud tt-cloud-far"></i>
+        <i class="tt-cloud tt-cloud-mid"></i>
+        <i class="tt-cloud tt-cloud-near"></i>
+        <span class="tt-field">${stars}</span>
+      </span>
+      <span class="tt-knob">
+        <span class="tt-moon">${icon('moon', 24)}</span>
+      </span>
+    </button>`;
+  }
+
+  // ---- 数字滚动（看板统计 am）：低频、首次入场触发 ----
+  function countTo(el, to, dur = 600) {
+    if (!el) return;
+    if (typeof to !== 'number' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      el.textContent = String(to); return;
+    }
+    const start = performance.now();
+    function frame(now) {
+      const p = Math.min(1, (now - start) / dur);
+      const e = 1 - Math.pow(1 - p, 3);            // ease-out，快起步慢落地
+      el.textContent = String(Math.round(to * e));
+      if (p < 1) requestAnimationFrame(frame);
+      else el.textContent = String(to);
+    }
+    requestAnimationFrame(frame);
+  }
+  function animateCounts(el) {
+    (el || document).querySelectorAll('[data-count]').forEach(n => {
+      const t = n.getAttribute('data-count');
+      const num = Number(t);
+      countTo(n, Number.isFinite(num) ? num : t);
+    });
+  }
+
+  return { openModal, closeModal, confirm, icon, modalShell, thumbHTML, pickImages, hydrateThumbs, lightbox, lightboxById, releaseImage, applyTheme, themeToggleHTML, animateCounts };
+})();
+
+// 关闭弹窗（事件绑定辅助）
+function bindModalEvents() {
+  const mask = document.getElementById('modalMask');
+  mask.querySelectorAll('[data-close]').forEach(b => b.onclick = () => UI.closeModal());
+}
