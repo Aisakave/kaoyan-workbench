@@ -1,5 +1,5 @@
 /* ===== router.js =====
-   视图切换（hash 无刷新路由）+ 侧栏/底部Tab渲染 + 顶部标题与倒计时 */
+   视图切换（hash 无刷新路由）+ 侧栏渲染 + 顶部标题与倒计时 */
 
 'use strict';
 
@@ -28,11 +28,6 @@ const Router = (() => {
   let current = 'dashboard';
 
   function currentId() { return current; }
-
-  // 手机底部精选 Tab 与「更多」面板项
-  const TAB_PRIMARY = ['dashboard', 'plan', 'wrong', 'material', 'stats'];
-  const TAB_MORE    = ['subject', 'pastPaper', 'mockExam'];
-  function route(id) { return ROUTES.find(x => x.id === id); }
   function currentTheme() { return Controller.getSettings().theme === 'dark' ? 'dark' : 'light'; }
 
   // ---- 侧栏开合 + 蒙层（点击蒙层关闭）----
@@ -48,16 +43,6 @@ const Router = (() => {
   }
   function toggleSidebar() {
     document.getElementById('sidebar').classList.contains('open') ? closeSidebar() : openSidebar();
-  }
-
-  // ---- 「更多」底部面板开合 ----
-  function openSheet() {
-    const s = document.getElementById('tabSheet');
-    if (s) { s.classList.add('open'); s.setAttribute('aria-hidden', 'false'); }
-  }
-  function closeSheet() {
-    const s = document.getElementById('tabSheet');
-    if (s) { s.classList.remove('open'); s.setAttribute('aria-hidden', 'true'); }
   }
 
   function parseHash() {
@@ -77,47 +62,10 @@ const Router = (() => {
         <span class="nav-ico">${UI.icon(r.ico, 20)}</span>${r.label}
         ${r.id === 'wrong' ? '<span class="nav-badge" data-badge-for="wrong"></span>' : ''}</button>`).join('');
 
-    const tabBar = document.getElementById('tabBar');
-    const tabItemHTML = (id, isMore = false) => {
-      const r = isMore ? { id: 'more', ico: 'more', label: '更多' } : route(id);
-      const active = isMore ? TAB_MORE.includes(current) : (r.id === current);
-      return `<button class="tab-item ${active ? 'active' : ''} ${isMore ? 'tab-more' : ''}"
-                ${isMore ? 'data-more' : `data-route="${r.id}"`}>
-        <span class="tab-ico">${UI.icon(r.ico, 20)}</span>${r.label}
-        ${r.id === 'wrong' ? '<span class="tab-badge" data-badge-for="wrong"></span>' : ''}</button>`;
-    };
-    tabBar.innerHTML = TAB_PRIMARY.map(id => tabItemHTML(id)).join('')
-      + tabItemHTML('more', true);
-
-    renderTabSheet();
-
     document.getElementById('pageTitle').textContent =
       (ROUTES.find(r => r.id === current) || {}).label || '';
-    UI.applyTheme(currentTheme()); // 重绘后重新对齐双端开关状态
+    UI.applyTheme(currentTheme()); // 重绘后重新对齐开关状态
     refreshBadges();
-  }
-
-  // 「更多」底部面板：收纳 3 个次要路由 + 外观开关
-  function renderTabSheet() {
-    const sheet = document.getElementById('tabSheet');
-    if (!sheet) return;
-    const items = TAB_MORE.map(id => {
-      const r = route(id);
-      return `<button class="sheet-item ${r.id === current ? 'active' : ''}" data-route="${r.id}">
-        <span class="sheet-ico">${UI.icon(r.ico, 20)}</span>${r.label}
-        <span class="sheet-arrow">${UI.icon('more', 16)}</span></button>`;
-    }).join('');
-    sheet.innerHTML = `
-      <div class="tab-sheet-mask" data-sheet-close></div>
-      <div class="tab-sheet-panel">
-        <div class="tab-sheet-grip"></div>
-        <div class="tab-sheet-title">更多功能</div>
-        <div class="tab-sheet-list">${items}</div>
-        <div class="tab-sheet-theme">
-          <span class="sheet-label">外观</span>
-          ${UI.themeToggleHTML(currentTheme(), 'lg')}
-        </div>
-      </div>`;
   }
 
   // 错题簿红点徽标：显示到期未复习数（0 隐藏，>99 显示 99+）
@@ -152,23 +100,20 @@ const Router = (() => {
   }
 
   function init() {
-    // 侧栏 + Tab 导航事件
+    // 侧栏导航事件
     document.addEventListener('click', e => {
       // 点击徽标直达待复习标签
       const badge = e.target.closest('[data-badge-for="wrong"]');
-      if (badge) { location.hash = '/wrong?tab=review'; closeSheet(); return; }
-      // 路由项（侧栏 / 底部Tab / 更多面板内）
+      if (badge) { location.hash = '/wrong?tab=review'; return; }
+      // 路由项（侧栏内）
       const item = e.target.closest('[data-route]');
-      if (item) { navigate(item.getAttribute('data-route')); closeSheet(); }
+      if (item) { navigate(item.getAttribute('data-route')); }
       // 侧栏开合（手机）：折叠按钮 或 蒙层点击关闭
       const toggle = e.target.closest('#btnToggleSide');
       if (toggle) { toggleSidebar(); return; }
       if (e.target.closest('#sidebarMask')) { closeSidebar(); return; }
-      // 更多底部面板
-      if (e.target.closest('[data-more]')) { openSheet(); return; }
-      if (e.target.closest('[data-sheet-close]')) { closeSheet(); return; }
-      // 点击底部 Tab 或主区关闭侧栏
-      if (e.target.closest('.tab-item') || e.target.closest('.tabbar') || e.target.closest('.main')) {
+      // 点击主区关闭侧栏
+      if (e.target.closest('.main')) {
         closeSidebar();
       }
     });

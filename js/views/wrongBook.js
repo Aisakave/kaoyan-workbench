@@ -14,6 +14,8 @@ const WrongBookView = (() => {
   let shown = PAGE;         // 已展示条数
   let rvTimer = null;       // 复习计时句柄（REQ-007）
   let rvStart = 0;          // 复习开始时间戳
+  let sortBy = 'update';    // update(最近操作) | created(添加时间)
+  let sortDir = 'desc';     // desc(最新在前) | asc(最早在前)
   function stopTimer() { if (rvTimer) { clearInterval(rvTimer); rvTimer = null; } }
 
   function mount(container) {
@@ -30,10 +32,19 @@ const WrongBookView = (() => {
     if (box) { filterKeyword = box.value.trim().toLowerCase(); shown = PAGE; refreshList(); }
   }
 
+  // 统一排序：按字段 + 方向（desc 最新在前 / asc 最早在前）
+  function sortWrong(list) {
+    const mul = sortDir === 'asc' ? 1 : -1;
+    return list.slice().sort((a, b) => {
+      if (sortBy === 'created') return mul * ((b.created || b.updated || 0) - (a.created || a.updated || 0));
+      return mul * ((b.updated || b.created || 0) - (a.updated || a.created || 0));
+    });
+  }
+
   // 只更新结果区：分批渲染 + 懒加载图片，避免一次铺满整页与全量读图
   function refreshList() {
     const s = Controller.getState();
-    const all = Object.values(s.wrongQuestions).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+    const all = sortWrong(Object.values(s.wrongQuestions));
     const box = el.querySelector('#wrongCards');
     if (!box) return;
     box.innerHTML = listHTML(getFiltered(all));
@@ -107,6 +118,24 @@ const WrongBookView = (() => {
     if (fstat) { filterStatus = fstat.getAttribute('data-fstat'); render(); }
     const ftype = e.target.closest('[data-ftype]');
     if (ftype) { filterType = ftype.getAttribute('data-ftype'); render(); }
+    // 排序切换（仅刷新结果区 + 就地更新胶囊高亮，保留输入焦点）
+    const srt = e.target.closest('[data-sort]');
+    if (srt) {
+      sortBy = srt.getAttribute('data-sort'); shown = PAGE;
+      const row = srt.closest('.sort-row');
+      if (row) row.querySelectorAll('[data-sort]').forEach(b =>
+        b.classList.toggle('chip-sub', b.getAttribute('data-sort') === sortBy));
+      refreshList();
+    }
+    // 排序方向切换（最新在前 / 最早在前）：就地更新按钮文案与箭头
+    const sdir = e.target.closest('[data-sortdir]');
+    if (sdir) {
+      const dir = sortDir = sortDir === 'asc' ? 'desc' : 'asc'; shown = PAGE;
+      sdir.innerHTML = `${dir === 'asc'
+        ? `<svg class="ico-svg" style="transform:rotate(180deg)" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-more"></use></svg>`
+        : UI.icon('more', 12)} ${dir === 'asc' ? '最早在前' : '最新在前'}`;
+      refreshList();
+    }
     // 加载更多
     const more = e.target.closest('[data-loadmore]');
     if (more) { shown += PAGE; refreshList(); }
@@ -440,7 +469,7 @@ const WrongBookView = (() => {
   function render() {
     shown = PAGE;
     const s = Controller.getState();
-    const all = Object.values(s.wrongQuestions).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+    const all = sortWrong(Object.values(s.wrongQuestions));
     const total = all.length;
     const permanent = all.filter(w => w.permanent).length;
     const dueCount = Controller.reviewDueCount();
@@ -497,6 +526,16 @@ const WrongBookView = (() => {
       </div>
       <div class="small muted mb-2">搜索匹配题目知识点、我错在哪、关键一步；点击上方错误类型条可按该类筛错题</div>
 
+      <div class="sort-row mt-2">
+        <span class="small muted">排序：</span>
+        <button class="chip ${sortBy === 'update' ? 'chip-sub' : ''}" data-sort="update" style="cursor:pointer">最近操作</button>
+        <button class="chip ${sortBy === 'created' ? 'chip-sub' : ''}" data-sort="created" style="cursor:pointer">按添加时间</button>
+        <span class="grow" style="flex:1"></span>
+        <button class="chip" data-sortdir style="cursor:pointer;display:inline-flex;align-items:center;gap:4px">${sortDir === 'asc'
+          ? `<svg class="ico-svg" style="transform:rotate(180deg)" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-more"></use></svg>`
+          : UI.icon('more', 12)} ${sortDir === 'asc' ? '最早在前' : '最新在前'}</button>
+      </div>
+
       <div id="wrongCards"></div>`;
     refreshList();
   }
@@ -512,6 +551,7 @@ const WrongBookView = (() => {
           ${w.permanent ? `<span class="chip chip-err">${UI.icon('flag', 13)} 永久保留</span>` : ''}
           ${!w.permanent && (w.reviewCount || 0) >= 3 ? `<span class="chip chip-ok">${UI.icon('check', 13)} 已掌握</span>` : ''}
           <span class="chip ${'sd-' + w.subject}"></span>
+          <span class="wc-time small muted" title="添加时间">${UI.icon('calendar', 12)} ${relTime(w.created || w.updated)}</span>
           <div class="grow"></div>
           <span class="recur ${w.recurCount >= 3 ? 'danger' : ''}">${UI.icon('repeat', 13)} ${w.recurCount}</span>
           <button class="btn btn-icon btn-ghost btn-sm" data-edit="${esc(w.id)}">${UI.icon('pencil', 15)}</button>

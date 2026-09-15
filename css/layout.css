@@ -1,5 +1,5 @@
 /* ===== layout.css =====
-   布局：侧栏 + 主区 + 手机底部 Tab + 响应式断点 */
+   布局：侧栏 + 主区 + 响应式断点 */
 
 .app { min-height: 100vh; }
 
@@ -88,74 +88,24 @@
 }
 
 .content { padding: var(--space); max-width: 1080px; width: 100%; margin: 0 auto; flex: 1; }
-.sidebar-toggle { display: none; }
+/* ID 选择器压过 components.css 后加载的 .btn{display:inline-flex}（BUG-003） */
+#btnToggleSide { display: none; }
 
 /* 视图切换入场：仅切页时触发（视图节点重建一次），局部刷新不闪动 */
 .view-holder { animation: viewIn 0.24s var(--ease-out); }
 @keyframes viewIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-
-/* ---- 手机底部 Tab ---- */
-.tabbar {
-  position: fixed; bottom: 0; left: 0; right: 0;
-  height: var(--tabbar-h);
-  background: var(--tabbar-bg);
-  -webkit-backdrop-filter: blur(14px) saturate(1.4);
-  backdrop-filter: blur(14px) saturate(1.4);
-  border-top: 1px solid var(--color-border);
-  display: none;
-  z-index: 40;
-  padding-bottom: env(safe-area-inset-bottom);
-  box-shadow: 0 -4px 18px -8px rgba(28, 35, 51, 0.08);
-}
-.tab-item {
-  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 2px; border: none; background: transparent;
-  color: var(--color-text-3); font-size: 11px; font-weight: 500;
-  transition: color 0.18s var(--ease-out), transform 0.12s var(--ease-out);
-}
-.tab-item:active { transform: scale(0.94); }
-.tab-item .tab-ico { font-size: 20px; line-height: 1; }
-.tab-item { position: relative; }
-    .tab-item.active { color: var(--color-primary-strong); font-weight: 600; }
-    .tab-item.active .tab-ico { animation: tabIcoPop 0.22s var(--ease-out) forwards; }
-    @keyframes tabIcoPop {
-      from { transform: translateY(0) scale(0.85); opacity: 0.7; }
-      to { transform: translateY(-1px) scale(1.1); opacity: 1; }
-    }
-    .tab-item.active::before {
-      content: ""; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
-      width: 28px; height: 3px; border-radius: 0 0 3px 3px; background: var(--color-primary);
-      animation: tabBarIn 0.2s var(--ease-out);
-    }
-    @keyframes tabBarIn {
-      from { transform: translateX(-50%) scaleX(0.4); opacity: 0; }
-      to { transform: translateX(-50%) scaleX(1); opacity: 1; }
-    }
-.tab-badge {
-  position: absolute; top: 3px; right: calc(50% - 26px);
-  min-width: 16px; height: 16px; padding: 0 4px;
-  background: var(--color-danger); color: #fff; border-radius: 8px;
-  font-size: 10px; line-height: 16px; font-weight: 700;
-  display: none; align-items: center; justify-content: center;
-}
-.tab-badge.show { display: inline-flex; }
-
-/* 手机底部 Tab 里的紧凑主题开关（REQ-010） */
-.tab-theme { display: inline-flex; align-items: center; padding: 0 3px; flex: none; }
-.tab-theme .theme-toggle { margin: 0; }
 
 /* ===== 响应式 ===== */
 @media (max-width: 1023px) {
   .sidebar { transform: translateX(-100%); box-shadow: var(--shadow-pop); }
   .sidebar.open { transform: translateX(0); }
   .main { margin-left: 0; }
-  .sidebar-toggle { display: inline-flex; }
+  #btnToggleSide { display: inline-flex; }
   .topbar-actions { margin-left: auto; }
 }
 
 @media (max-width: 767px) {
-  .content { padding: 14px; padding-bottom: calc(var(--tabbar-h) + 14px); }
-  .tabbar { display: flex; }
+  .content { padding: 14px; }
   .topbar { padding: 0 14px; }
   .countdown-pill { display: none; }
 }
@@ -171,102 +121,4 @@
 .sidebar.open + .sidebar-mask {
   opacity: 1;
   visibility: visible;
-}
-
-/* ---- 手机端底部「更多」功能面板 ---- */
-.tab-sheet {
-  position: fixed;
-  inset: auto 0 0 0;
-  z-index: 50;
-  min-height: 0;
-  pointer-events: none;
-}
-.tab-sheet.open {
-  pointer-events: auto;
-}
-.tab-sheet-mask {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  transition: opacity 0.2s var(--ease-out);
-}
-.tab-sheet:not(.open) .tab-sheet-mask { opacity: 0; }
-.tab-sheet:not(.open) .tab-sheet-panel {
-  transform: translateY(100%);
-}
-.tab-sheet-panel {
-  position: relative;
-  background: var(--color-surface);
-  border-radius: 18px 18px 0 0;
-  box-shadow: 0 -6px 34px -10px rgba(28, 35, 51, 0.25);
-  transform: translateY(0);
-  transition: transform 0.3s var(--ease-pop);
-  padding-bottom: calc(14px + env(safe-area-inset-bottom));
-}
-.tab-sheet-grip {
-  width: 40px; height: 4px;
-  margin: 10px auto;
-  border-radius: 2px;
-  background: var(--color-border-strong);
-  opacity: 0.6;
-}
-.tab-sheet-title {
-  font-size: 15px;
-  font-weight: 700;
-  text-align: center;
-  padding: 10px 0 14px;
-  color: var(--color-text);
-}
-.tab-sheet-list {
-  padding: 0 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.sheet-item {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 10px;
-  border-radius: 10px;
-  border: none;
-  background: transparent;
-  color: var(--color-text-2);
-  text-align: left;
-  font-size: 14px;
-  font-weight: 500;
-  transition: background 0.16s var(--ease-out);
-}
-.sheet-item:active { transform: scale(0.98); }
-.sheet-item:hover { background: var(--color-surface-2); }
-.sheet-item.active {
-  background: linear-gradient(135deg, var(--color-primary-weak), var(--color-primary-weak-2));
-  color: var(--color-primary-strong);
-  font-weight: 600;
-}
-.sheet-ico {
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.sheet-arrow {
-  margin-left: auto;
-  opacity: 0.6;
-}
-.tab-sheet-theme {
-  margin: 14px 10px 4px;
-  padding: 12px;
-  border-radius: 10px;
-  background: var(--color-surface-2);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.sheet-label {
-  font-size: 13px;
-  color: var(--color-text-2);
-  font-weight: 500;
 }

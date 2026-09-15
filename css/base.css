@@ -41,7 +41,6 @@
 
   /* 毛玻璃层（深浅色各自适配） */
   --topbar-bg: rgba(245, 247, 251, 0.72);
-  --tabbar-bg: rgba(255, 255, 255, 0.92);
   --scroll-thumb: #c9d1e0;
   --scroll-thumb-hover: #b3bdce;
 
@@ -53,7 +52,6 @@
 
   --sidebar-w: 232px;
   --topbar-h: 60px;
-  --tabbar-h: 58px;
 
   --space: 18px;
 }
@@ -216,7 +214,6 @@ img { max-width: 100%; display: block; }
 
   --ring: 0 0 0 3px rgba(124, 155, 255, 0.28);
   --topbar-bg: rgba(16, 19, 25, 0.72);
-  --tabbar-bg: rgba(24, 28, 36, 0.92);
   --scroll-thumb: #39415a;
   --scroll-thumb-hover: #48526b;
 }

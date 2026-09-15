@@ -76,6 +76,22 @@ function weekDayCN(s) {
   return '周' + w;
 }
 
+// 相对时间文案：刚刚 / N分钟前 / N小时前 / N天前 / 月-日 时:分（跨年带年份）
+function relTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const diff = Date.now() - ts;
+  const min = 60000, hr = 3600000, day = 86400000;
+  if (diff < min) return '刚刚';
+  if (diff < hr) return Math.floor(diff / min) + ' 分钟前';
+  if (diff < day) return Math.floor(diff / hr) + ' 小时前';
+  if (diff < day * 7) return Math.floor(diff / day) + ' 天前';
+  const y = d.getFullYear();
+  const p = (y === new Date().getFullYear() ? '' : y + '-')
+    + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  return p + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
+
 // 本周起始日（周一）
 function weekStart() {
   const d = new Date();

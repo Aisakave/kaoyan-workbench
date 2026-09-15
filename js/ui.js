@@ -177,10 +177,11 @@ const UI = (() => {
     for (let i = 0; i < count; i++) {
       // 大小混合：约 1/3 四角星芒（大星）+ 小圆点
       const spark = rng() > 0.68;
-      // 位置：大星偏左（参考图构图），整体在月亮旋钮左侧避免遮挡
-      const left = (spark ? 8 + rng() * 26 : 10 + rng() * 50).toFixed(1);
-      const top = (12 + rng() * 72).toFixed(1);
-      const sz = (spark ? 5 + rng() * 2 : 1.1 + rng() * 1.6).toFixed(1);
+      // 位置：摊开整条夜空（右侧给旋钮留白），桌面更宽、手机收窄
+      const leftMax = compact ? 56 : 72;
+      const left = (6 + rng() * (leftMax - 6)).toFixed(1);
+      const top = (10 + rng() * 76).toFixed(1);
+      const sz = (spark ? 6.5 + rng() * 2.5 : 1.8 + rng() * 1.6).toFixed(1);
       // 风吹入场：统一从左侧吹来（起点在落点左方），上下仅小幅错开
       const dist = compact ? 16 + rng() * 18 : 28 + rng() * 36;
       const ex = (-dist).toFixed(1);
@@ -190,9 +191,10 @@ const UI = (() => {
       // Follow-through：随风向右轻微越过落点，再被风放回
       const ox = (2.5 + rng() * 4.5).toFixed(1);
       const oy = ((rng() - 0.5) * 4).toFixed(1);
-      // Stagger 按横向位置：左边的星先亮，风从左往右扫过整片星空
-      const inDel = ((+left / 60) * 0.8 + rng() * 0.12).toFixed(2);
-      const inDur = (0.7 + rng() * 0.45).toFixed(2);
+      // 与月亮同步：旋钮 0.5s ease-pop 从左滑到右（前快后慢），
+      // 星星按横向位置换算同曲线时刻亮起——月亮扫到哪，星星就在哪现身
+      const inDel = (Math.pow(+left / 100, 2.5) * 0.5 + 0.04 + rng() * 0.05).toFixed(2);
+      const inDur = (0.55 + rng() * 0.25).toFixed(2);
       // 落位后 Float：X/Y 各自独立周期与相位（失重漂移）
       const flX = (0.8 + rng() * 1.6).toFixed(1);
       const flY = (1.2 + rng() * 2.4).toFixed(1);

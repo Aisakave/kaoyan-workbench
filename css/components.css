@@ -173,7 +173,6 @@
   box-shadow: 0 6px 24px -6px rgba(0,0,0,0.3);
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); bottom: 40px; }
-@media (max-width: 767px) { .toast.show { bottom: calc(var(--tabbar-h) + 20px); } }
 
 /* ---- 错题卡 ---- */
 .wrong-card {
@@ -183,6 +182,7 @@
 }
 @media (hover: hover) and (pointer: fine) { .wrong-card:hover { box-shadow: var(--shadow-2); } }
 .wrong-card .wc-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.wc-time { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; margin-left: 2px; }
 .wc-title { font-weight: 700; font-size: 15px; flex: 1; min-width: 140px; }
 .wc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px 16px; margin-top: 10px; }
 .wc-field { font-size: 13px; }
@@ -435,7 +435,7 @@
 .tt-dot.spark {
   border-radius: 0; background: #f4f8ff;
   clip-path: polygon(50% 0%, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0% 50%, 40% 40%);
-  filter: drop-shadow(0 0 3px rgba(215, 230, 255, 0.9));
+  filter: drop-shadow(0 0 4px rgba(215, 230, 255, 0.95));
 }
 .tt-move { position: absolute; inset: 0; }
 .tt-fx, .tt-fy { position: absolute; inset: 0; }
