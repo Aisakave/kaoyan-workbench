@@ -419,7 +419,7 @@
 /* 切换瞬间给一点模糊，掩盖日月交叠的缝隙（Emil 手法） */
 .theme-toggle.switching .tt-knob { filter: blur(1.5px); }
 
-/* 星星：夜间从右侧月亮侧"被吹出"，失重非直线漂浮；静止后轻柔闪烁 */
+/* 星星：从左往右风吹入场（按位置级联 + 顺风起伏 + follow-through）→ 失重漂浮 → 大小星各异闪烁 */
 .tt-field { position: absolute; inset: 0; pointer-events: none; }
 .tt-star {
   position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px;
@@ -431,19 +431,42 @@
   border-radius: 50%; background: #fff;
   box-shadow: 0 0 6px 1px rgba(255, 255, 255, 0.5);
 }
-.tt-dot.bright { background: #f5f8ff; box-shadow: 0 0 9px 2px rgba(210, 222, 255, 0.85); }
+/* 四角星芒（参考图大星造型）：clip-path 裁形，drop-shadow 辉光贴合星形 */
+.tt-dot.spark {
+  border-radius: 0; background: #f4f8ff;
+  clip-path: polygon(50% 0%, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0% 50%, 40% 40%);
+  filter: drop-shadow(0 0 3px rgba(215, 230, 255, 0.9));
+}
 .tt-move { position: absolute; inset: 0; }
-.theme-toggle.dark .tt-star { animation: starTwinkle var(--tw-dur) var(--tw-del) ease-in-out infinite; }
-.theme-toggle.dark .tt-star .tt-move { animation: starIn var(--in-dur) var(--in-del) var(--ease-out) both; }
+.tt-fx, .tt-fy { position: absolute; inset: 0; }
+.theme-toggle.dark .tt-star { opacity: 1; animation: starTwinkle var(--tw-dur) var(--tw-del) ease-in-out infinite both; }
+.theme-toggle.dark .tt-star .tt-move { animation: starIn var(--in-dur) var(--in-del) cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+.theme-toggle.dark .tt-star .tt-fx { animation: starFloatX var(--fx-dur) var(--fx-pha) ease-in-out infinite; }
+.theme-toggle.dark .tt-star .tt-fy { animation: starFloatY var(--fy-dur) var(--fy-pha) ease-in-out infinite; }
+/* 风吹入场：从左侧吹来 → 顺风上下起伏 → 向右轻微越过落点 → 回位（follow-through） */
 @keyframes starIn {
-  0%   { transform: translate(var(--sx), var(--sy)) scale(0.25); opacity: 0; }
-  42%  { transform: translate(calc(var(--sx) * 0.22), calc(var(--sy) * -0.5)) scale(1); opacity: 0.8; }
-  76%  { transform: translate(calc(var(--sx) * 0.04), calc(var(--sy) * -0.15)) scale(1.1); opacity: 1; }
+  0%   { transform: translate(var(--ex), var(--ey)) scale(0.3); opacity: 0; }
+  45%  { transform: translate(calc(var(--ex) * 0.42), calc(var(--ey) * 0.42 + var(--by))) scale(0.85); opacity: 0.7; }
+  78%  { transform: translate(var(--ox), var(--oy)) scale(1.06); opacity: 1; }
   100% { transform: translate(0, 0) scale(1); opacity: 1; }
 }
+/* 失重漂浮：X/Y 各自独立周期与相位，不对称轨迹叠加成有机漂移（Lissajous 感） */
+@keyframes starFloatX {
+  0%, 100% { transform: translateX(0); }
+  30%      { transform: translateX(calc(var(--fl-x) * 0.9)); }
+  55%      { transform: translateX(calc(var(--fl-x) * -0.4)); }
+  80%      { transform: translateX(calc(var(--fl-x) * 0.25)); }
+}
+@keyframes starFloatY {
+  0%, 100% { transform: translateY(0); }
+  25%      { transform: translateY(calc(var(--fl-y) * -0.85)); }
+  50%      { transform: translateY(calc(var(--fl-y) * 0.5)); }
+  75%      { transform: translateY(calc(var(--fl-y) * -0.3)); }
+}
+/* 明暗闪烁：起始亮度与静止态一致（both 回填），大小星节奏各异 */
 @keyframes starTwinkle {
-  0%, 100% { opacity: 0.28; }
-  50%      { opacity: 1; }
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
 }
 
 /* ===== 空状态图标浮动（低频首见，安全）===== */

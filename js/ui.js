@@ -172,30 +172,49 @@ const UI = (() => {
     let s = (seed % 2147483647) || 1; if (s < 0) s += 2147483646;
     return () => (s = (s * 16807) % 2147483647) / 2147483647;
   }
-  function starHTML(rng, count) {
+  function starHTML(rng, count, compact) {
     let out = '';
     for (let i = 0; i < count; i++) {
-      const left = (14 + rng() * 72).toFixed(1);
-      const top = (10 + rng() * 72).toFixed(1);
-      // 被"吹出"：从右侧月亮侧飘出，--sx 表示起点偏移，配合曲径 keyframes 形成失重非直线
-      const sx = (16 + rng() * 50).toFixed(0);
-      const sy = (-16 + rng() * 34).toFixed(0);
-      const sz = (1.4 + rng() * 1.9).toFixed(1);
-      const twDur = (1.7 + rng() * 2.3).toFixed(2);
-      const twDel = (rng() * 2.5).toFixed(2);
-      const inDur = (0.5 + rng() * 0.6).toFixed(2);
-      const inDel = (rng() * 0.35).toFixed(2);
-      const bright = rng() > 0.7 ? ' bright' : '';
+      // 大小混合：约 1/3 四角星芒（大星）+ 小圆点
+      const spark = rng() > 0.68;
+      // 位置：大星偏左（参考图构图），整体在月亮旋钮左侧避免遮挡
+      const left = (spark ? 8 + rng() * 26 : 10 + rng() * 50).toFixed(1);
+      const top = (12 + rng() * 72).toFixed(1);
+      const sz = (spark ? 5 + rng() * 2 : 1.1 + rng() * 1.6).toFixed(1);
+      // 风吹入场：统一从左侧吹来（起点在落点左方），上下仅小幅错开
+      const dist = compact ? 16 + rng() * 18 : 28 + rng() * 36;
+      const ex = (-dist).toFixed(1);
+      const ey = ((rng() - 0.5) * 12).toFixed(1);
+      // 顺风起伏：飞行途中轻微上下飘，像被风托着
+      const by = ((rng() - 0.5) * 18).toFixed(1);
+      // Follow-through：随风向右轻微越过落点，再被风放回
+      const ox = (2.5 + rng() * 4.5).toFixed(1);
+      const oy = ((rng() - 0.5) * 4).toFixed(1);
+      // Stagger 按横向位置：左边的星先亮，风从左往右扫过整片星空
+      const inDel = ((+left / 60) * 0.8 + rng() * 0.12).toFixed(2);
+      const inDur = (0.7 + rng() * 0.45).toFixed(2);
+      // 落位后 Float：X/Y 各自独立周期与相位（失重漂移）
+      const flX = (0.8 + rng() * 1.6).toFixed(1);
+      const flY = (1.2 + rng() * 2.4).toFixed(1);
+      const fxDur = (3.2 + rng() * 2.2).toFixed(2);
+      const fxPha = (rng() * 4).toFixed(2);
+      const fyDur = (4.4 + rng() * 2.8).toFixed(2);
+      const fyPha = (rng() * 4).toFixed(2);
+      // 闪烁：等本星入场结束后开始，大小星节奏各异
+      const twDur = (2 + rng() * 2.4).toFixed(2);
+      const twDel = (+inDel + +inDur + rng() * 1.6).toFixed(2);
       out += `<span class="tt-star" style="left:${left}%;top:${top}%;--tw-dur:${twDur}s;--tw-del:${twDel}s">`
-           + `<span class="tt-move" style="--sx:${sx}px;--sy:${sy}px;--in-dur:${inDur}s;--in-del:${inDel}s">`
-           + `<i class="tt-dot${bright}" style="--sz:${sz}px"></i></span></span>`;
+           + `<span class="tt-move" style="--ex:${ex}px;--ey:${ey}px;--by:${by}px;--ox:${ox}px;--oy:${oy}px;--in-dur:${inDur}s;--in-del:${inDel}s">`
+           + `<span class="tt-fx" style="--fl-x:${flX}px;--fx-dur:${fxDur}s;--fx-pha:${fxPha}s">`
+           + `<span class="tt-fy" style="--fl-y:${flY}px;--fy-dur:${fyDur}s;--fy-pha:${fyPha}s">`
+           + `<i class="tt-dot${spark ? ' spark' : ''}" style="--sz:${sz}px"></i></span></span></span></span>`;
     }
     return out;
   }
   function themeToggleHTML(mode = 'light', size = 'lg') {
     const dark = mode === 'dark';
     const rng = seedRand(size === 'sm' ? 7 : 19);
-    const stars = starHTML(rng, size === 'sm' ? 9 : 16);
+    const stars = starHTML(rng, size === 'sm' ? 9 : 16, size === 'sm');
     return `<button class="theme-toggle tt-${size} ${dark ? 'dark' : ''}" data-theme-toggle
               role="switch" aria-pressed="${dark}" aria-label="切换浅色/深色外观">
       <span class="tt-track">

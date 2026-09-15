@@ -27,6 +27,7 @@
         <button class="btn btn-ghost btn-full" id="btnImport" title="导入备份">导入备份</button>
       </div>
     </aside>
+    <div class="sidebar-mask" id="sidebarMask" aria-hidden="true"></div>
 
     <main class="main" id="main">
       <header class="topbar">
@@ -43,6 +44,8 @@
     <nav class="tabbar" id="tabBar">
       <!-- 手机底部 Tab 由 JS 渲染 -->
     </nav>
+
+    <div class="tab-sheet" id="tabSheet" aria-hidden="true"></div>
   </div>
 
   <input type="file" id="fileImport" accept="application/json" style="display:none">

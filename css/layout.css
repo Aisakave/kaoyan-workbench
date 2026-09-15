@@ -159,3 +159,114 @@
   .topbar { padding: 0 14px; }
   .countdown-pill { display: none; }
 }
+
+/* ---- 手机端侧栏蒙层（点击关闭侧栏）---- */
+.sidebar-mask {
+  position: fixed; inset: 0; z-index: 35;
+  background: rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.25s var(--ease-out), visibility 0.25s var(--ease-out);
+}
+.sidebar.open + .sidebar-mask {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* ---- 手机端底部「更多」功能面板 ---- */
+.tab-sheet {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 50;
+  min-height: 0;
+  pointer-events: none;
+}
+.tab-sheet.open {
+  pointer-events: auto;
+}
+.tab-sheet-mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  transition: opacity 0.2s var(--ease-out);
+}
+.tab-sheet:not(.open) .tab-sheet-mask { opacity: 0; }
+.tab-sheet:not(.open) .tab-sheet-panel {
+  transform: translateY(100%);
+}
+.tab-sheet-panel {
+  position: relative;
+  background: var(--color-surface);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -6px 34px -10px rgba(28, 35, 51, 0.25);
+  transform: translateY(0);
+  transition: transform 0.3s var(--ease-pop);
+  padding-bottom: calc(14px + env(safe-area-inset-bottom));
+}
+.tab-sheet-grip {
+  width: 40px; height: 4px;
+  margin: 10px auto;
+  border-radius: 2px;
+  background: var(--color-border-strong);
+  opacity: 0.6;
+}
+.tab-sheet-title {
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+  padding: 10px 0 14px;
+  color: var(--color-text);
+}
+.tab-sheet-list {
+  padding: 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.sheet-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 10px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-2);
+  text-align: left;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.16s var(--ease-out);
+}
+.sheet-item:active { transform: scale(0.98); }
+.sheet-item:hover { background: var(--color-surface-2); }
+.sheet-item.active {
+  background: linear-gradient(135deg, var(--color-primary-weak), var(--color-primary-weak-2));
+  color: var(--color-primary-strong);
+  font-weight: 600;
+}
+.sheet-ico {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sheet-arrow {
+  margin-left: auto;
+  opacity: 0.6;
+}
+.tab-sheet-theme {
+  margin: 14px 10px 4px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--color-surface-2);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sheet-label {
+  font-size: 13px;
+  color: var(--color-text-2);
+  font-weight: 500;
+}
