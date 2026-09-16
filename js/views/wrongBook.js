@@ -390,12 +390,13 @@ const WrongBookView = (() => {
     UI.openModal(UI.modalShell('批量导入 · 使用引导', `
       <p class="modal-msg">第一次用别慌，照着下面 4 步做，当天错题一次就能导入完。</p>
       ${bulkGuideStepsHTML()}
-      <p class="modal-msg bi-guide-note">配对规则：文件夹按修改时间排序，每两张图（题目图→解析图）合成一条错题，单张图单独成条。</p>
+      <p class="modal-msg bi-guide-note">配对规则：通常按修改时间两两配对（题目图→解析图=1 条），单张图单独成条。若一题有多张解析图，请把这几张图改为同一文件名前缀（如 <code>题1-1/题1-2/题1-3</code>），系统自动归为一题。</p>
       <label class="bi-guide-skip"><input type="checkbox" id="bi-guide-skip"> 下次直接选择文件夹（不再显示本引导）</label>
     `, `
       <button class="btn btn-ghost" data-close>取消</button>
       <button class="btn btn-primary" id="bi-guide-go">选择文件夹开始</button>
     `), { lock: true });
+    bindModalEvents();
     document.getElementById('bi-guide-go').onclick = () => {
       if (document.getElementById('bi-guide-skip').checked) localStorage.setItem(BULK_GUIDE_KEY, '1');
       UI.closeModal();
@@ -407,7 +408,7 @@ const WrongBookView = (() => {
   function bulkGuideStepsHTML() {
     return `<div class="bi-guide-body">
       <div class="bi-step"><b>① 学习前</b>：建文件夹 <code>2026-09-16-英语</code>（多科就建多个：<code>2026-09-16-英语</code>、<code>2026-09-16-专业课</code>）</div>
-      <div class="bi-step"><b>② 刷题时</b>：每道错题按「题目图→解析图」紧挨着粘贴</div>
+      <div class="bi-step"><b>② 刷题时</b>：每道错题按「题目图→解析图」紧挨着粘贴；若一题有多张解析图，这几张图用同一文件名前缀（如 <code>题1-1/题1-2/题1-3</code>）</div>
       <div class="bi-step"><b>③ 学习后</b>：选当天文件夹导入 → 科目/日期自动带出 → 错因默认其他（要改就改）→ 确认导入</div>
       <div class="bi-step"><b>④ 之后</b>：每条点「编辑」补真正的知识点关键词和关键一步</div>
     </div>`;
@@ -422,15 +423,39 @@ const WrongBookView = (() => {
       files.sort((a, b) => (a.lastModified || 0) - (b.lastModified || 0));
       const folderName = folderNameFrom(files);
       const meta = parseFolderMeta(folderName);
-      const pairs = [];
-      for (let i = 0; i < files.length; i += 2) {
-        pairs.push({
-          imgs: files.slice(i, i + 2),
-          subject: meta.subject, title: folderName, errorType: 'other'
-        });
-      }
+      const pairs = groupByPrefix(files, meta);
       showBulkPreview(pairs, filtered, meta);
     });
+  }
+
+  // 文件名主名（去扩展名）'题目1-1.png' -> '题目1'
+  function filePrefix(f) {
+    const base = (f.name || '').replace(/\.[^.]+$/, '');
+    const m = base.match(/^([^_\-]+)[_\-]/);
+    return m ? m[1] : null;
+  }
+
+  // 前缀优先：共同前缀(>=2张)的图归为一题；其余按修改时间两两配对兜底
+  function groupByPrefix(files, meta) {
+    const prefixs = files.map(filePrefix);
+    const counts = {};
+    prefixs.forEach(p => { if (p) counts[p] = (counts[p] || 0) + 1; });
+    const used = new Array(files.length).fill(false);
+    const mk = imgs => ({ imgs, subject: meta.subject, title: folderNameFrom(files), errorType: 'other' });
+    const pairs = [];
+    files.forEach((f, i) => {
+      const p = prefixs[i];
+      if (p && counts[p] >= 2 && !used[i]) {
+        const group = [];
+        files.forEach((_, j) => {
+          if (p === prefixs[j] && !used[j]) { used[j] = true; group.push(files[j]); }
+        });
+        pairs.push(mk(group));
+      }
+    });
+    const orphan = files.filter((_, i) => !used[i]);
+    for (let i = 0; i < orphan.length; i += 2) pairs.push(mk(orphan.slice(i, i + 2)));
+    return pairs;
   }
 
   // 从 webkitRelativePath 取文件夹名（如 习题1）；多选无路径时回退空
@@ -476,13 +501,13 @@ const WrongBookView = (() => {
           <summary>使用流程（每天这样，一次导入全搞定）▾</summary>
           ${bulkGuideStepsHTML()}
         </details>
-        <p class="modal-msg">已按修改时间两两配对：${pairs.length} 条。每对「题目图+答案图」合为一条错题；单张图单独成条。${filtered ? `<br><span class="text-danger">已跳过 ${filtered} 个非图片/超过 12MB 的文件。</span>` : ''}</p>
+        <p class="modal-msg">共 ${pairs.length} 条。同前缀图片自动归为一题（可含 1 张题目 + 多张解析）；其余按修改时间两两配对，单张图单独成条。${filtered ? `<br><span class="text-danger">已跳过 ${filtered} 个非图片/超过 12MB 的文件。</span>` : ''}</p>
         <div class="bi-meta">${metaTip}</div>
         <div class="bi-bulkbar"><span class="bi-bulkbar-label">全部设为科目：</span>${SUBJECTS.map(s => `<button type="button" class="btn btn-sm btn-ghost" data-bisubject="${s.key}">${s.name}</button>`).join('')}</div>
         ${pairs.map((p, i) => `
           <div class="bi-item">
             <div class="bi-head">
-              <span class="chip chip-sub">第 ${i + 1} 条 · ${p.imgs.length > 1 ? '题+答' : '单图'}</span>
+              <span class="chip chip-sub">第 ${i + 1} 条 · ${p.imgs.length > 2 ? `${p.imgs.length} 张图` : p.imgs.length > 1 ? '题+答' : '单图'}</span>
               <select class="select bi-subject" data-idx="${i}">${subjectOpts(p.subject)}</select>
               <select class="select bi-et" data-idx="${i}">${etOpts(p.errorType)}</select>
               <input class="input bi-title" data-idx="${i}" value="${esc(p.title)}" placeholder="知识点标题（可留空）">
