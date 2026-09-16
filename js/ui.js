@@ -66,6 +66,37 @@ const UI = (() => {
     }
   }
 
+  // ---- 进度弹窗（导出/导入等长任务反馈，REQ-20260916-004）----
+  // 弹窗锁定不可关闭；任务结束（含失败路径）必须调用 close()。
+  // 返回 { update(pct, msg) 确定进度 0~100 | indet(msg) 不确定进度 | close() }
+  function progressModal(title) {
+    openModal(modalShell(esc(title), `
+      <p class="modal-msg" id="progText">准备中…</p>
+      <div class="progress mt-2 indet"><i id="progBar"></i></div>
+      <p class="small muted mt-1" id="progPct">&nbsp;</p>`, ''), { lock: true });
+    bindModalEvents();
+    const bar = document.getElementById('progBar');
+    const text = document.getElementById('progText');
+    const pct = document.getElementById('progPct');
+    const wrap = bar.parentElement;
+    return {
+      update(p, msg) {
+        const v = Math.max(0, Math.min(100, Math.round(p)));
+        wrap.classList.remove('indet');
+        bar.style.width = v + '%';
+        pct.textContent = v + '%';
+        if (msg) text.textContent = msg;
+      },
+      indet(msg) {
+        wrap.classList.add('indet');
+        bar.style.width = '';
+        pct.textContent = '…';
+        if (msg) text.textContent = msg;
+      },
+      close() { closeModal(); }
+    };
+  }
+
   // 自定义确认弹窗（替换原生 confirm）：opts = { title, message, okText, danger, onOk }
   function confirm(opts) {
     const okText = opts.okText || '删除';
@@ -281,7 +312,7 @@ const UI = (() => {
     });
   }
 
-  return { openModal, closeModal, confirm, icon, modalShell, thumbHTML, pickImages, pickFiles, hydrateThumbs, lightbox, lightboxById, releaseImage, applyTheme, themeToggleHTML, animateCounts };
+  return { openModal, closeModal, confirm, progressModal, icon, modalShell, thumbHTML, pickImages, pickFiles, hydrateThumbs, lightbox, lightboxById, releaseImage, applyTheme, themeToggleHTML, animateCounts };
 })();
 
 // 关闭弹窗（事件绑定辅助）

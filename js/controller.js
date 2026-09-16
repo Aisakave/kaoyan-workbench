@@ -281,40 +281,63 @@ const Controller = (() => {
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     return new Blob([bytes], { type: mime });
   }
+  // 让浏览器先绘制一帧再继续（同步大计算 JSON.parse/stringify 前刷新进度文字，REQ-20260916-004）
+  function nextFrame() {
+    return new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+  }
 
   async function exportAll() {
-    const rawImages = await Store.allImages();
-    const images = [];
-    for (const [bid, blob] of rawImages) {
+    const prog = UI.progressModal('导出备份');
+    try {
+      const rawImages = await Store.allImages();
       // 只导出原图，跳过缩略图（t_ 前缀），备份更小、结构干净
-      if (String(bid).startsWith('t_')) continue;
-      if (blob instanceof Blob) images.push([bid, await blobToDataURL(blob)]);
-      // 非 Blob（异常脏数据）跳过
+      const originals = rawImages.filter(([bid]) => !String(bid).startsWith('t_'));
+      const images = [];
+      const total = originals.length;
+      if (!total) prog.update(5, '没有图片，正在打包数据…');
+      for (let i = 0; i < total; i++) {
+        const [bid, blob] = originals[i];
+        prog.update(((i + 1) / (total + 1)) * 85, `正在读取图片 ${i + 1}/${total}`);
+        if (blob instanceof Blob) images.push([bid, await blobToDataURL(blob)]);
+        // 非 Blob（异常脏数据）跳过
+      }
+      prog.indet('正在生成备份文件…');
+      await nextFrame(); // 先绘制进度文字，再执行同步 JSON 序列化
+      const payload = { backup: true, createdAt: Date.now(), data: state, images };
+      const str = JSON.stringify(payload);
+      const blob = new Blob([str], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'backup-' + todayStr() + '.json';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      // 记录本次导出时间（REQ-20260916-003 备份提醒）：payload 已在前面组装，不影响本次备份内容
+      updateSettings({ lastExportAt: Date.now() });
+      prog.close();
+      Toast.show('备份已导出');
+    } catch (e) {
+      console.error(e);
+      prog.close();
+      Toast.show('导出失败，请重试', 'warn');
     }
-    const payload = { backup: true, createdAt: Date.now(), data: state, images };
-    const str = JSON.stringify(payload);
-    const blob = new Blob([str], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'backup-' + todayStr() + '.json';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-    // 记录本次导出时间（REQ-20260916-003 备份提醒）：payload 已在前面组装，不影响本次备份内容
-    updateSettings({ lastExportAt: Date.now() });
-    Toast.show('备份已导出');
   }
 
   async function importAll(json) {
+    const prog = UI.progressModal('导入备份');
     try {
+      prog.indet('正在解析备份文件…');
+      await nextFrame(); // 先绘制进度文字，再执行同步 JSON 解析
       const parsed = typeof json === 'string' ? JSON.parse(json) : json;
       if (!parsed || !parsed.backup) throw new Error('非备份文件');
       // 导入图片：兼容新备份（仅原图）与旧备份（含 t_ 缩略图键，一律跳过，导入后统一重建缩略图）
       if (Array.isArray(parsed.images)) {
+        const total = parsed.images.length;
         let restored = 0, thumbSkipped = 0;
-        for (const item of parsed.images) {
-          const bid = item[0];
-          const val = item[1];
+        for (let i = 0; i < total; i++) {
+          prog.update(((i + 1) / (total + 1)) * 90, `正在恢复图片 ${i + 1}/${total}`);
+          const bid = parsed.images[i][0];
+          const val = parsed.images[i][1];
           if (String(bid).startsWith('t_')) { thumbSkipped++; continue; }
           if (typeof val === 'string' && val.startsWith('data:')) {
             const blob = dataURLToBlob(val);
@@ -326,15 +349,19 @@ const Controller = (() => {
           }
           // 非 dataURL（含旧版空对象）无法恢复，跳过
         }
-        if (restored < parsed.images.length - thumbSkipped) {
+        if (restored < total - thumbSkipped) {
           Toast.show('部分旧备份图片无法恢复（已跳过）', 'warn');
         }
       }
+      prog.indet('正在写入数据…');
+      await nextFrame();
       Controller.replace(Store.migrate(parsed.data));
+      prog.close();
       Toast.show('导入成功');
       emit('data-restored');
     } catch (e) {
       console.error(e);
+      prog.close();
       Toast.show('导入失败：文件格式不正确', 'warn');
     }
   }

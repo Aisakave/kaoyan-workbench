@@ -9,3 +9,5 @@ Thumbs.db
 
 # 本地备份文件
 backup-*.json
+# WorkBuddy 会话工作区（记忆/验证截图，本地数据不上传）
+.workbuddy/
