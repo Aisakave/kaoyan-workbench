@@ -31,6 +31,11 @@ const DashboardView = (() => {
     // 今日任务勾选
     const t = e.target.closest('[data-todo]');
     if (t) { Controller.toggleTask(t.getAttribute('data-todo')); render(); return; }
+    // 备份提醒条：立即导出（REQ-20260916-003）
+    if (e.target.closest('[data-export-now]')) {
+      Controller.exportAll().then(() => render());
+      return;
+    }
     // 目标设置入口
     if (e.target.closest('[data-open-settings]')) openSettings();
     // 学习时长填写
@@ -56,9 +61,26 @@ const DashboardView = (() => {
         <input id="set-rbase" class="input" type="number" min="0" max="5" placeholder="3" value="${s.reviewBaseInterval != null ? s.reviewBaseInterval : 3}"></div>
       <div class="field"><label>每日复习受理上限（道/天，留空=自动按近期节奏；0=全量一天可见）</label>
         <input id="set-rcap" class="input" type="number" min="0" max="999" placeholder="自动" value="${s.dailyReviewCap > 0 ? s.dailyReviewCap : ''}"></div>
+      <div class="small muted" id="storage-info" style="margin-top:4px">正在读取本机存储占用…</div>
     `, `<button class="btn btn-ghost" data-close>取消</button>
         <button class="btn btn-primary" id="save-settings">保存</button>`), { lock: true });
     bindModalEvents();
+    // 本机存储占用（REQ-20260916-003）：实时读取不落库，含 IndexedDB 图片与 localStorage
+    if (navigator.storage && navigator.storage.estimate) {
+      navigator.storage.estimate().then(est => {
+        const info = document.getElementById('storage-info');
+        if (!info) return;
+        const used = est.usage || 0;
+        const free = Math.max(0, (est.quota || 0) - used);
+        info.textContent = `本机存储：已用 ${fmtBytes(used)} · 剩余配额约 ${fmtBytes(free)}（含错题图片）`;
+      }).catch(() => {
+        const info = document.getElementById('storage-info');
+        if (info) info.textContent = '';
+      });
+    } else {
+      const info = document.getElementById('storage-info');
+      if (info) info.textContent = '';
+    }
     document.getElementById('save-settings').onclick = () => {
       Controller.updateSettings({
         school: document.getElementById('set-school').value.trim(),
@@ -161,7 +183,25 @@ const DashboardView = (() => {
     const schoolName = settings.school || '未设置目标院校';
     const scoreText = settings.targetScore === null ? '–' : settings.targetScore;
 
+    // 备份提醒条（REQ-20260916-003）：有数据且从未备份/超7天未备份时显示
+    const hasData = s.wrongQuestions.length > 0 || s.tasks.length > 0 || s.materials.length > 0;
+    const lastExp = settings.lastExportAt || null;
+    const daysSinceExp = lastExp ? Math.floor((Date.now() - lastExp) / 86400000) : null;
+    let backupBanner = '';
+    if (hasData && (lastExp === null || daysSinceExp > 7)) {
+      backupBanner = `
+      <div class="backup-banner">
+        <span class="ico">${UI.icon('warn', 17)}</span>
+        <div class="grow">
+          <div>${lastExp === null ? '数据仅保存在本机浏览器，还没有备份过' : `距上次备份已 <b class="mono">${daysSinceExp}</b> 天`}</div>
+          <div class="small muted">清缓存 / 换设备会丢失全部错题与图片，建议每周导出一次备份</div>
+        </div>
+        <button class="btn btn-xs btn-warn" data-export-now>立即导出</button>
+      </div>`;
+    }
+
     el.innerHTML = `
+      ${backupBanner}
       <div class="grid grid-cols-2">
         <!-- 倒计时 -->
         <div class="stat-card accent">

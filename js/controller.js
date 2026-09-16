@@ -300,6 +300,8 @@ const Controller = (() => {
     a.download = 'backup-' + todayStr() + '.json';
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
+    // 记录本次导出时间（REQ-20260916-003 备份提醒）：payload 已在前面组装，不影响本次备份内容
+    updateSettings({ lastExportAt: Date.now() });
     Toast.show('备份已导出');
   }
 

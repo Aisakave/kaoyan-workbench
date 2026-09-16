@@ -226,3 +226,13 @@ function fmtDur(sec) {
   if (m) return s ? `${m}分${s}秒` : `${m}分`;
   return `${s}秒`;
 }
+
+// 容量格式化：字节 -> "512 KB" / "1.2 MB" / "3.4 GB"（REQ-20260916-003 备份提醒）
+function fmtBytes(b) {
+  b = Number(b) || 0;
+  if (b < 1024) return Math.max(0, Math.round(b)) + ' B';
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let i = -1;
+  do { b /= 1024; i++; } while (b >= 1024 && i < units.length - 1);
+  return (b >= 100 ? Math.round(b) : Math.round(b * 10) / 10) + ' ' + units[i];
+}

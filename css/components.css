@@ -31,6 +31,21 @@
 .btn-full { width: 100%; }
 .btn-danger-ghost { background: transparent; color: var(--color-danger); border: 1px solid transparent; }
 .btn-danger-ghost:hover { background: var(--color-danger-weak); }
+.btn-warn { background: var(--color-warn); color: #fff; }
+.btn-warn:hover { filter: brightness(1.06); }
+
+/* ---- 备份提醒条（REQ-20260916-003）---- */
+.backup-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; margin-bottom: var(--space);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-warn-weak);
+  animation: emptyIn 0.3s var(--ease-out);
+}
+.backup-banner .ico { color: var(--color-warn); display: inline-flex; flex-shrink: 0; }
+.backup-banner .grow > div:first-child { font-weight: 600; }
+.backup-banner .btn-warn { flex-shrink: 0; }
 
 /* ---- 卡片 ---- */
 .card {
