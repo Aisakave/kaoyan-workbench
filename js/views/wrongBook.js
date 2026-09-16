@@ -415,7 +415,7 @@ const WrongBookView = (() => {
     UI.openModal(UI.modalShell('批量导入 · 使用引导', `
       <p class="modal-msg">第一次用别慌，照着下面 4 步做，当天错题一次就能导入完。</p>
       ${bulkGuideStepsHTML()}
-      <p class="modal-msg bi-guide-note">配对规则：同「题号」的图（文件名带 <code>题1/题2…</code>）自动归为一题；其余按文件名时间（微信另存为自动带）两两配对，单张图单独成条。</p>
+      <p class="modal-msg bi-guide-note">配对规则：文件名末尾「题号」相同（如 <code>题1-题目</code>、<code>题1-解析1</code>）的图自动归为一题；其余按文件名时间（微信另存为自动带）两两配对，单张图单独成条。</p>
       <label class="bi-guide-skip"><input type="checkbox" id="bi-guide-skip"> 下次直接选择文件夹（不再显示本引导）</label>
     `, `
       <button class="btn btn-ghost" data-close>取消</button>
@@ -433,7 +433,7 @@ const WrongBookView = (() => {
   function bulkGuideStepsHTML() {
     return `<div class="bi-guide-body">
       <div class="bi-step"><b>① 学习前</b>：建文件夹 <code>2026-09-16-英语</code>（多科就建多个：<code>2026-09-16-英语</code>、<code>2026-09-16-专业课</code>）</div>
-      <div class="bi-step"><b>② 刷题时</b>：每题截图发微信，用「另存为」存进当天文件夹（文件名自动带时间戳）；若一题有多张解析图，在文件名末尾补同一「题号」，如 <code>…题1-题目</code>、<code>…题1-解析1</code>、<code>…题1-解析2</code></div>
+      <div class="bi-step"><b>② 刷题时</b>：每题截图发微信，用「另存为」存进当天文件夹（文件名自动带时间戳）；一题有多张图时，把「题号+角色」加在文件名最末尾：<code>题1-题目</code>、<code>题1-解析1</code>、<code>题1-解析2</code>（题号是「题+数字」如 题1/题2，不是「题目1」）。完整示例：<code>微信图片_20260915132316_211_1题1-题目.png</code></div>
       <div class="bi-step"><b>③ 学习后</b>：选当天文件夹导入 → 科目/日期自动带出 → 错因默认其他（要改就改）→ 确认导入</div>
       <div class="bi-step"><b>④ 之后</b>：每条点「编辑」补真正的知识点关键词和关键一步</div>
     </div>`;

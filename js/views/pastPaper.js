@@ -49,13 +49,23 @@ const PastPaperView = (() => {
     document.getElementById('p-save').onclick = () => {
       const title = document.getElementById('p-title').value.trim();
       if (!title) { Toast.show('请填写标题', 'warn'); return; }
+      const fields = [
+        ['用时', document.getElementById('p-time').value],
+        ['得分', document.getElementById('p-score').value],
+        ['错题数', document.getElementById('p-wrong').value]
+      ].map(([name, raw]) => ({ name, val: raw === '' ? null : Number(raw) }));
+      for (const f of fields) {
+        if (f.val !== null && (!Number.isFinite(f.val) || f.val < 0)) {
+          Toast.show(`${f.name}需为不小于 0 的数字`, 'warn'); return;
+        }
+      }
       const data = {
         title,
         subject: document.getElementById('p-subject').value,
         date: document.getElementById('p-date').value,
-        usedTimeMin: Number(document.getElementById('p-time').value) || 0,
-        score: document.getElementById('p-score').value === '' ? null : Number(document.getElementById('p-score').value),
-        wrongNum: document.getElementById('p-wrong').value === '' ? null : Number(document.getElementById('p-wrong').value)
+        usedTimeMin: fields[0].val,
+        score: fields[1].val,
+        wrongNum: fields[2].val
       };
       if (existing) Controller.updatePaper(existing.id, data);
       else Controller.addPaper(data);

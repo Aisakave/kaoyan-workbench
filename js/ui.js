@@ -70,7 +70,7 @@ const UI = (() => {
   // 弹窗锁定不可关闭；任务结束（含失败路径）必须调用 close()。
   // 返回 { update(pct, msg) 确定进度 0~100 | indet(msg) 不确定进度 | close() }
   function progressModal(title) {
-    openModal(modalShell(esc(title), `
+    openModal(modalShell(title, `
       <p class="modal-msg" id="progText">准备中…</p>
       <div class="progress mt-2 indet"><i id="progBar"></i></div>
       <p class="small muted mt-1" id="progPct">&nbsp;</p>`, ''), { lock: true });
@@ -101,9 +101,9 @@ const UI = (() => {
   function confirm(opts) {
     const okText = opts.okText || '删除';
     const danger = opts.danger !== false;
-    openModal(modalShell(opts.title || '确认操作', `<p class="modal-msg">${opts.message}</p>`,
+    openModal(modalShell(esc(opts.title || '确认操作'), `<p class="modal-msg">${esc(opts.message)}</p>`,
       `<button class="btn btn-ghost" data-close>取消</button>
-       <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" id="confirm-ok">${okText}</button>`), { lock: true });
+       <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" id="confirm-ok">${esc(okText)}</button>`), { lock: true });
     bindModalEvents();
     document.getElementById('confirm-ok').onclick = () => { UI.closeModal(); if (opts.onOk) opts.onOk(); };
   }
@@ -111,7 +111,7 @@ const UI = (() => {
   function modalShell(title, bodyHtml, footHtml) {
     return `
       <div class="modal-head">
-        <div class="modal-title">${title}</div>
+        <div class="modal-title">${esc(title)}</div>
         <button class="btn btn-icon btn-ghost" data-close>${icon('x', 16)}</button>
       </div>
       ${bodyHtml}

@@ -51,9 +51,9 @@ const Controller = (() => {
   // ---- 学习时长 ----
   function getStudyLog(dateStr) { return state.studyLogs[dateStr] || {}; }
   function logStudy(dateStr, subject, minutes) {
-    if (!dateStr || !subject || !(minutes > 0)) return;
+    if (!dateStr || !subject || !minutes || !Number.isFinite(minutes)) return;
     state.studyLogs[dateStr] = state.studyLogs[dateStr] || {};
-    state.studyLogs[dateStr][subject] = (state.studyLogs[dateStr][subject] || 0) + minutes;
+    state.studyLogs[dateStr][subject] = Math.max(0, (state.studyLogs[dateStr][subject] || 0) + minutes);
     persist();
   }
   function todayStudyMinutes() {
@@ -251,11 +251,6 @@ const Controller = (() => {
     return reviewDueQueue().capSummary.total;
   }
 
-  function reviewDueCountAll() {
-    const intervalBase = state.settings.reviewBaseInterval;
-    return state.wrongQuestions.filter(w => reviewMeta(w, intervalBase).due <= Date.now()).length;
-  }
-
   // 排行榜：按复发次数降序，次级按最近更新降序
   function ranking(limit = 10) {
     return state.wrongQuestions.slice()
@@ -376,7 +371,7 @@ const Controller = (() => {
     addMock, updateMock, deleteMock,
     addMaterial, updateMaterial, deleteMaterial,
     addWrongQuestion, updateWrongQuestion, bumpWrong, deleteWrongQuestion,
-    markReviewed, reviewDueList, reviewDueQueue, reviewDueCount, reviewDueCountAll, ranking, todayReviewedCount,
+    markReviewed, reviewDueList, reviewDueQueue, reviewDueCount, ranking, todayReviewedCount,
     weakPointStats,
     exportAll, importAll
   };

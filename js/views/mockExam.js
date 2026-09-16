@@ -47,11 +47,17 @@ const MockExamView = (() => {
     document.getElementById('m-save').onclick = () => {
       const score = document.getElementById('m-score').value;
       if (score === '') { Toast.show('请填写分数', 'warn'); return; }
+      const scoreNum = Number(score);
+      if (!Number.isFinite(scoreNum) || scoreNum < 0) { Toast.show('分数需为不小于 0 的数字', 'warn'); return; }
+      const fullRaw = document.getElementById('m-full').value;
+      const fullNum = fullRaw === '' ? null : Number(fullRaw);
+      if (fullNum !== null && (!Number.isFinite(fullNum) || fullNum <= 0)) { Toast.show('满分需为大于 0 的数字', 'warn'); return; }
+      if (fullNum !== null && scoreNum > fullNum) { Toast.show('分数不能高于满分', 'warn'); return; }
       const data = {
         subject: document.getElementById('m-subject').value,
         date: document.getElementById('m-date').value,
-        score: Number(score),
-        fullScore: document.getElementById('m-full').value === '' ? null : Number(document.getElementById('m-full').value),
+        score: scoreNum,
+        fullScore: fullNum,
         note: document.getElementById('m-note').value.trim()
       };
       if (existing) Controller.updateMock(existing.id, data);

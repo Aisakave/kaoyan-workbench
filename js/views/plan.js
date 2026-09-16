@@ -95,7 +95,7 @@ const PlanView = (() => {
 
     const bodyHtml = total ? keys.map(k => {
       const isNone = k === '__none__';
-      const label = isNone ? '未排期' : `${dateLabel(k)} ${k === todayStr() ? '·今天' : ''}`;
+      const label = isNone ? '未排期' : dateLabel(k);
       const rows = groups[k].map(t => `
         <div class="list-row ${t.done ? 'done' : ''}">
           <input type="checkbox" class="checkbox" data-todo="${esc(t.id)}" ${t.done ? 'checked' : ''}>
