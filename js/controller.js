@@ -206,17 +206,55 @@ const Controller = (() => {
     return n;
   }
 
-  // 到期未复习队列：按到期时间升序
-  function reviewDueList() {
+  // 智能复习队列：返回 { list(活动受理区), deferred(顺延), stabilized(稳定收纳), capSummary }
+  // 排序：逾期天数大者优先 → 同逾期按到期时间早优先；稳定掌握题淡出。
+  // dailyReviewCap：0=不限；负/空=自适应取近14天中位数；>0=固定每日受理数。
+  function reviewDueQueue() {
     const now = Date.now();
     const intervalBase = state.settings.reviewBaseInterval;
-    return state.wrongQuestions
+    const all = state.wrongQuestions
       .map(w => ({ w, meta: reviewMeta(w, intervalBase) }))
       .filter(x => x.meta.due <= now)
-      .sort((a, b) => a.meta.due - b.meta.due);
+      .sort((a, b) => (b.meta.overdueDays - a.meta.overdueDays) || (a.meta.due - b.meta.due));
+
+    // 1) 分拣稳定掌握题
+    const stable = [], rest = [];
+    all.forEach(x => (isStabilized(x.w, intervalBase) ? stable : rest).push(x));
+
+    // 2) 受限量
+    const capUsed = state.settings.dailyReviewCap;
+    const capVal = dailyCapValue(capUsed, state.wrongQuestions, intervalBase);
+    let list = rest, deferred = [];
+    if (capVal > 0 && rest.length > capVal) {
+      list = rest.slice(0, capVal);
+      deferred = rest.slice(capVal);
+    }
+    return {
+      list,
+      deferred,
+      stabilized: stable,
+      cap: capVal,
+      capSummary: {
+        total: all.length,
+        shown: list.length,
+        deferred: deferred.length,
+        stabilized: stable.length
+      }
+    };
   }
 
-  function reviewDueCount() { return reviewDueList().length; }
+  function reviewDueList() {
+    return reviewDueQueue().list;
+  }
+
+  function reviewDueCount() {
+    return reviewDueQueue().capSummary.total;
+  }
+
+  function reviewDueCountAll() {
+    const intervalBase = state.settings.reviewBaseInterval;
+    return state.wrongQuestions.filter(w => reviewMeta(w, intervalBase).due <= Date.now()).length;
+  }
 
   // 排行榜：按复发次数降序，次级按最近更新降序
   function ranking(limit = 10) {
@@ -309,7 +347,7 @@ const Controller = (() => {
     addMock, updateMock, deleteMock,
     addMaterial, updateMaterial, deleteMaterial,
     addWrongQuestion, updateWrongQuestion, bumpWrong, deleteWrongQuestion,
-    markReviewed, reviewDueList, reviewDueCount, ranking, todayReviewedCount,
+    markReviewed, reviewDueList, reviewDueQueue, reviewDueCount, reviewDueCountAll, ranking, todayReviewedCount,
     weakPointStats,
     exportAll, importAll
   };

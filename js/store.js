@@ -21,6 +21,7 @@ const Store = (() => {
         dailyStudyMin: 0,      // 今日学习时长(分钟)，按日期结构存储，见 studyLogs
         dailyReviewGoal: 0,    // 每日复习目标(题数)，0=未设置（REQ-005）
         reviewBaseInterval: 3, // 错题复习基础间隔(天)，新题首次/做错后回到；0=收录即到期（REQ-006）
+        dailyReviewCap: -1,     // 每日复习受理上限：0=不限，-1=自适应(取近14天中位数)，>0=固定每日道数（REQ-016-002）
         theme: 'light'         // 外观：light=浅色 / dark=深色（REQ-010 双态）
       },
       studyLogs: { /* { '2026-09-15': { english:min, political:min, math:min, pro:min } } */ },

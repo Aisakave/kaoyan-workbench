@@ -54,6 +54,8 @@ const DashboardView = (() => {
         <input id="set-rgoal" class="input" type="number" min="0" max="999" placeholder="0" value="${s.dailyReviewGoal || 0}"></div>
       <div class="field"><label>错题复习基础间隔（天，0=收录后立即到期；做对后自动拉长）</label>
         <input id="set-rbase" class="input" type="number" min="0" max="5" placeholder="3" value="${s.reviewBaseInterval != null ? s.reviewBaseInterval : 3}"></div>
+      <div class="field"><label>每日复习受理上限（道/天，留空=自动按近期节奏；0=全量一天可见）</label>
+        <input id="set-rcap" class="input" type="number" min="0" max="999" placeholder="自动" value="${s.dailyReviewCap > 0 ? s.dailyReviewCap : ''}"></div>
     `, `<button class="btn btn-ghost" data-close>取消</button>
         <button class="btn btn-primary" id="save-settings">保存</button>`), { lock: true });
     bindModalEvents();
@@ -66,6 +68,12 @@ const DashboardView = (() => {
         reviewBaseInterval: (function () {
           var n = Number(document.getElementById('set-rbase').value);
           return isNaN(n) ? 3 : Math.max(0, Math.min(5, Math.round(n)));
+        })(),
+        dailyReviewCap: (function () {
+          var v = document.getElementById('set-rcap').value.trim();
+          if (v === '') return -1;                       // 自动
+          var n = Number(v);
+          return isNaN(n) ? -1 : Math.max(0, Math.round(n)); // 0=不限，>0=固定
         })()
       });
       UI.closeModal(); render(); App.refreshTopbar();

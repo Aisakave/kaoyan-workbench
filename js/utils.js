@@ -92,6 +92,14 @@ function relTime(ts) {
   return p + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
 }
 
+// 具体日期时间：YYYY-MM-DD HH:mm（不做相对换算）
+function absTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())
+    + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
+
 // 本周起始日（周一）
 function weekStart() {
   const d = new Date();
@@ -176,6 +184,38 @@ function overdueLevel(overdueDays) {
   if (overdueDays >= 3) return 'warn';
   if (overdueDays >= 1) return 'due';
   return '';
+}
+
+// 稳定掌握判定：同时满足①达到30天档(reviewCount>=6)②最近连续2次都对③逾期<=7天④非permanent
+// 用于「逾期智缓」——满足则该题从每日队列淡出（做错后判据失效，自动回归）
+function isStabilized(w, intervalBase) {
+  if (!w || w.permanent) return false;
+  if (w.reviewCount < REVIEW_INTERVALS.length - 1) return false; // 需达30天档(reviewCount>=6)
+  const hist = (w.reviewHistory || []).slice(-2);
+  if (hist.length !== 2 || hist.some(h => !h.correct)) return false;
+  return reviewMeta(w, intervalBase).overdueDays <= 7;
+}
+
+// 每日受理上限的固定值：0=不限；自适应(空/负)→近14天到期量中位数 clamp[5,300]
+function dailyCapValue(cap, wrongQuestions, intervalBase) {
+  if (typeof cap === 'number' && cap > 0) return Math.round(cap);
+  if (typeof cap === 'number' && cap === 0) return 0;
+  // 自适应：统计近14天各天到期待复习的题量，取中位数
+  const now = Date.now();
+  const day = 86400000;
+  const counts = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(now - i * day).toDateString();
+    const n = wrongQuestions.filter(w => {
+      const due = reviewDue(w, intervalBase);
+      return due <= now && new Date(due).toDateString() === d;
+    }).length;
+    if (n > 0) counts.push(n);
+  }
+  if (!counts.length) return 5;
+  counts.sort((a, b) => a - b);
+  const mid = counts[Math.floor(counts.length / 2)];
+  return Math.max(5, Math.min(300, mid));
 }
 
 // 时长格式化：秒 -> 「3分25秒」/「45秒」（REQ-007 复习计时）

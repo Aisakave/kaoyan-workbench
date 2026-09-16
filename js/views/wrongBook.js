@@ -245,15 +245,40 @@ const WrongBookView = (() => {
   }
 
   function renderReviewTab(body) {
-    const list = Controller.reviewDueList();
-    if (!list.length) {
+    const q = Controller.reviewDueQueue();
+    const capInfo = q.capSummary;
+    if (capInfo.total === 0) {
       const b = baseInterval();
       body.innerHTML = `<div class="empty"><div class="empty-icon">${UI.icon('ok', 28)}</div><div class="empty-title">暂无到期待复习错题</div><div>新错题${b > 0 ? '创建 ' + b + ' 天后' : '收录后'}自动进入队列，保持节奏！</div></div>`;
       return;
     }
-    body.innerHTML = `
-      <div class="small muted mb-2">共 ${list.length} 题到期 · 按到期先后排列 · 复习 = 重做后标记结果</div>
-      <div class="grid grid-cols-2">${list.map(({ w, meta }) => reviewCard(w, meta)).join('')}</div>`;
+    const parts = [];
+    // 顶部统计：到期总数 + 今日受理数
+    let statBits = [`到期 ${capInfo.total} 题`];
+    if (capInfo.shown && capInfo.shown !== capInfo.total) statBits.push(`今日受理 ${capInfo.shown} 题`);
+    if (capInfo.deferred) statBits.push(`顺延 ${capInfo.deferred} 题`);
+    parts.push(`<div class="small muted mb-2">${statBits.join(' · ')} · 复习 = 重做后标记结果</div>`);
+    // 活动受理区
+    if (q.list.length) {
+      parts.push(`<div class="grid grid-cols-2">${q.list.map(({ w, meta }) => reviewCard(w, meta)).join('')}</div>`);
+    } else if (capInfo.shown === 0 && capInfo.total > 0) {
+      const tip = capInfo.deferred
+        ? `今日已受理完毕，其余 ${capInfo.deferred} 题已顺延，明天优先补进`
+        : (capInfo.stabilized ? '今日到期题均已达稳定掌握，暂不催办' : '今日已受理完毕');
+      parts.push(`<div class="empty"><div class="empty-icon">${UI.icon('clock', 26)}</div><div class="empty-title">暂无今日需受理</div><div>${tip}</div></div>`);
+    }
+    // 顺延区（默认折叠可展开）
+    if (q.deferred.length) {
+      parts.push(`<details class="rv-more"><summary>另有 ${q.deferred.length} 题已顺延（逾期久的优先，明日自动补进）</summary>
+        <div class="grid grid-cols-2">${q.deferred.map(({ w, meta }) => reviewCard(w, meta)).join('')}</div></details>`);
+    }
+    // 稳定收纳区（默认折叠）
+    if (q.stabilized.length) {
+      parts.push(`<details class="rv-more"><summary>${q.stabilized.length} 题已稳定掌握，暂不催办（做错会自动回归）</summary>
+        <div class="small muted mb-1">达到 30 天档且最近连续 2 次做对、逾期未超 7 天</div>
+        <div class="grid grid-cols-2">${q.stabilized.map(({ w, meta }) => reviewCard(w, meta)).join('')}</div></details>`);
+    }
+    body.innerHTML = parts.join('');
     UI.hydrateThumbs(body);
   }
 
@@ -390,7 +415,7 @@ const WrongBookView = (() => {
     UI.openModal(UI.modalShell('批量导入 · 使用引导', `
       <p class="modal-msg">第一次用别慌，照着下面 4 步做，当天错题一次就能导入完。</p>
       ${bulkGuideStepsHTML()}
-      <p class="modal-msg bi-guide-note">配对规则：通常按修改时间两两配对（题目图→解析图=1 条），单张图单独成条。若一题有多张解析图，请把这几张图改为同一文件名前缀（如 <code>题1-1/题1-2/题1-3</code>），系统自动归为一题。</p>
+      <p class="modal-msg bi-guide-note">配对规则：同「题号」的图（文件名带 <code>题1/题2…</code>）自动归为一题；其余按文件名时间（微信另存为自动带）两两配对，单张图单独成条。</p>
       <label class="bi-guide-skip"><input type="checkbox" id="bi-guide-skip"> 下次直接选择文件夹（不再显示本引导）</label>
     `, `
       <button class="btn btn-ghost" data-close>取消</button>
@@ -408,10 +433,25 @@ const WrongBookView = (() => {
   function bulkGuideStepsHTML() {
     return `<div class="bi-guide-body">
       <div class="bi-step"><b>① 学习前</b>：建文件夹 <code>2026-09-16-英语</code>（多科就建多个：<code>2026-09-16-英语</code>、<code>2026-09-16-专业课</code>）</div>
-      <div class="bi-step"><b>② 刷题时</b>：每道错题按「题目图→解析图」紧挨着粘贴；若一题有多张解析图，这几张图用同一文件名前缀（如 <code>题1-1/题1-2/题1-3</code>）</div>
+      <div class="bi-step"><b>② 刷题时</b>：每题截图发微信，用「另存为」存进当天文件夹（文件名自动带时间戳）；若一题有多张解析图，在文件名末尾补同一「题号」，如 <code>…题1-题目</code>、<code>…题1-解析1</code>、<code>…题1-解析2</code></div>
       <div class="bi-step"><b>③ 学习后</b>：选当天文件夹导入 → 科目/日期自动带出 → 错因默认其他（要改就改）→ 确认导入</div>
       <div class="bi-step"><b>④ 之后</b>：每条点「编辑」补真正的知识点关键词和关键一步</div>
     </div>`;
+  }
+
+  // 文件真实时间：优先文件名紧邻的时间戳(微信图片_20260915132316_xxx)，回退文件系统修改时间
+  function fileTime(f) {
+    const base = (f.name || '').replace(/\.[^.]+$/, '');
+    // 时间戳段必须是被下划线/连字符/中文字符包围的连续数字，避免 MD5 乱串误配
+    const m = base.match(/(?:^|[\u4e00-\u9fa5_\-])(\d{14})(?=[\u4e00-\u9fa5_\-]|$)/) ||
+              base.match(/(?:^|[\u4e00-\u9fa5_\-])(\d{10,14})(?=[\u4e00-\u9fa5_\-]|$)/);
+    if (m) {
+      const s = m[1];
+      const t = new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8),
+        +(s.slice(8, 10) || 0), +(s.slice(10, 12) || 0), +(s.slice(12, 14) || 0)).getTime();
+      if (!isNaN(t)) return t;
+    }
+    return (f.lastModified || 0);
   }
 
   function pickBulkFolder() {
@@ -420,36 +460,37 @@ const WrongBookView = (() => {
         Toast.show(filtered ? '所选均为非图片或超过 12MB 的文件' : '未选择图片', 'warn');
         return;
       }
-      files.sort((a, b) => (a.lastModified || 0) - (b.lastModified || 0));
+      files.sort((a, b) => fileTime(a) - fileTime(b));
       const folderName = folderNameFrom(files);
       const meta = parseFolderMeta(folderName);
-      const pairs = groupByPrefix(files, meta);
+      const pairs = groupByQmark(files, meta);
       showBulkPreview(pairs, filtered, meta);
     });
   }
 
-  // 文件名主名（去扩展名）'题目1-1.png' -> '题目1'
-  function filePrefix(f) {
+  // 题号键：从文件名提取「题N」作为同一题的分组键（如 微信图片_..._题1-题目 -> 题1）;无则 null
+  function qmark(f) {
     const base = (f.name || '').replace(/\.[^.]+$/, '');
-    const m = base.match(/^([^_\-]+)[_\-]/);
+    const m = base.match(/(题\d+|T\d+)/i);
     return m ? m[1] : null;
   }
 
-  // 前缀优先：共同前缀(>=2张)的图归为一题；其余按修改时间两两配对兜底
-  function groupByPrefix(files, meta) {
-    const prefixs = files.map(filePrefix);
+  // 题号优先：同「题N」的图(>=2张)归为一题；其余按文件时间两两配对兜底
+  function groupByQmark(files, meta) {
+    const marks = files.map(qmark);
     const counts = {};
-    prefixs.forEach(p => { if (p) counts[p] = (counts[p] || 0) + 1; });
+    marks.forEach(p => { if (p) counts[p] = (counts[p] || 0) + 1; });
     const used = new Array(files.length).fill(false);
     const mk = imgs => ({ imgs, subject: meta.subject, title: folderNameFrom(files), errorType: 'other' });
     const pairs = [];
     files.forEach((f, i) => {
-      const p = prefixs[i];
+      const p = marks[i];
       if (p && counts[p] >= 2 && !used[i]) {
         const group = [];
         files.forEach((_, j) => {
-          if (p === prefixs[j] && !used[j]) { used[j] = true; group.push(files[j]); }
+          if (p === marks[j] && !used[j]) { used[j] = true; group.push(files[j]); }
         });
+        group.sort((a, b) => fileTime(a) - fileTime(b));
         pairs.push(mk(group));
       }
     });
@@ -501,7 +542,7 @@ const WrongBookView = (() => {
           <summary>使用流程（每天这样，一次导入全搞定）▾</summary>
           ${bulkGuideStepsHTML()}
         </details>
-        <p class="modal-msg">共 ${pairs.length} 条。同前缀图片自动归为一题（可含 1 张题目 + 多张解析）；其余按修改时间两两配对，单张图单独成条。${filtered ? `<br><span class="text-danger">已跳过 ${filtered} 个非图片/超过 12MB 的文件。</span>` : ''}</p>
+        <p class="modal-msg">共 ${pairs.length} 条。同「题号」的图自动归为一题（可含 1 张题目 + 多张解析）；其余按时间两两配对，单张图单独成条。配对与添加时间优先取文件名时间戳（微信「另存为」自动带，如 <code>微信图片_20260915132316_xxx.png</code>）${filtered ? `<br><span class="text-danger">已跳过 ${filtered} 个非图片/超过 12MB 的文件。</span>` : ''}</p>
         <div class="bi-meta">${metaTip}</div>
         <div class="bi-bulkbar"><span class="bi-bulkbar-label">全部设为科目：</span>${SUBJECTS.map(s => `<button type="button" class="btn btn-sm btn-ghost" data-bisubject="${s.key}">${s.name}</button>`).join('')}</div>
         ${pairs.map((p, i) => `
@@ -567,8 +608,8 @@ const WrongBookView = (() => {
         if (thumb) await Store.saveThumb(id, thumb);
         ids.push(id);
       }
-      // created 取题目图文件修改时间，保证「按添加时间」能还原文件夹原始顺序
-      const ts = (p.imgs[0] && p.imgs[0].lastModified) || Date.now();
+      // created 取题目图真实时间（优先文件名时间戳，回退文件系统时间），保证还原做题顺序
+      const ts = (p.imgs[0] && fileTime(p.imgs[0])) || Date.now();
       Controller.addWrongQuestion({
         subject: p.subject, title: p.title,
         errorTypes: [p.errorType || 'other'], customError: '', keyStep: '',
@@ -761,7 +802,7 @@ const WrongBookView = (() => {
           ${w.permanent ? `<span class="chip chip-err">${UI.icon('flag', 13)} 永久保留</span>` : ''}
           ${!w.permanent && (w.reviewCount || 0) >= 3 ? `<span class="chip chip-ok">${UI.icon('check', 13)} 已掌握</span>` : ''}
           <span class="chip ${'sd-' + w.subject}"></span>
-          <span class="wc-time small muted" title="添加时间">${UI.icon('calendar', 12)} ${relTime(w.created || w.updated)}</span>
+          <span class="wc-time" title="添加时间（按微信图时间）">${UI.icon('calendar', 15)} ${absTime(w.created || w.updated)}</span>
           <div class="grow"></div>
           <span class="recur ${w.recurCount >= 3 ? 'danger' : ''}">${UI.icon('repeat', 13)} ${w.recurCount}</span>
           <button class="btn btn-icon btn-ghost btn-sm" data-edit="${esc(w.id)}">${UI.icon('pencil', 15)}</button>

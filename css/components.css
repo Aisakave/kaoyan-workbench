@@ -209,12 +209,19 @@
 }
 @media (hover: hover) and (pointer: fine) { .wrong-card:hover { box-shadow: var(--shadow-2); } }
 .wrong-card .wc-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-.wc-time { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; margin-left: 2px; }
+.wc-time { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; margin-left: 2px; font-size: 13px; color: var(--color-text-2); }
+.wc-time .ico-svg { color: var(--color-text-2); }
 .wc-title { font-weight: 700; font-size: 15px; flex: 1; min-width: 140px; }
 .wc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px 16px; margin-top: 10px; }
 .wc-field { font-size: 13px; }
 .wc-field .k { color: var(--color-text-3); font-size: 12px; display: block; margin-bottom: 1px; }
 .wc-field .v { color: var(--color-text); }
+/* 复习队列分区折叠（REQ-016-002 每日限量/智缓）：顺延区与稳定收纳区 */
+.rv-more { margin-top: 12px; border: 1px solid var(--color-border, rgba(128,128,128,.18)); border-radius: 8px; }
+.rv-more summary { cursor: pointer; padding: 10px 14px; font-size: 13px; color: var(--color-text-2); user-select: none; }
+.rv-more[open] summary { border-bottom: 1px solid var(--color-border, rgba(128,128,128,.18)); margin-bottom: 10px; }
+.rv-more summary:hover { color: var(--color-text); }
+.rv-more > .grid { padding: 0 14px 14px; }
 /* 再错错因（REQ-007）：柔和暖色底 + 左边条，与“我错在哪”区分 */
 .rv-reason-field { margin-top: 8px; padding: 6px 8px; background: rgba(178,106,0,.08); border-left: 3px solid #b26a00; border-radius: 0 4px 4px 0; }
 .rv-reason-field .k { color: #b26a00; }
