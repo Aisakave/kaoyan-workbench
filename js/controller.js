@@ -284,30 +284,39 @@ const Controller = (() => {
   async function exportAll() {
     const prog = UI.progressModal('导出备份');
     try {
-      const rawImages = await Store.allImages();
       // 只导出原图，跳过缩略图（t_ 前缀），备份更小、结构干净
-      const originals = rawImages.filter(([bid]) => !String(bid).startsWith('t_'));
-      const images = [];
+      const originals = (await Store.allImages()).filter(([bid]) => !String(bid).startsWith('t_'));
       const total = originals.length;
       if (!total) prog.update(5, '没有图片，正在打包数据…');
+      // 分段拼装 JSON：图片边转 base64 边写入 parts，不整体 stringify，
+      // 避免超大字符串把手机内存撑爆（BUG-20260921-001）
+      const parts = ['{"backup":true,"createdAt":' + Date.now() + ',"data":' + JSON.stringify(state) + ',"images":['];
       for (let i = 0; i < total; i++) {
         const [bid, blob] = originals[i];
         prog.update(((i + 1) / (total + 1)) * 85, `正在读取图片 ${i + 1}/${total}`);
-        if (blob instanceof Blob) images.push([bid, await blobToDataURL(blob)]);
+        if (blob instanceof Blob) {
+          const s = JSON.stringify([bid, await blobToDataURL(blob)]);
+          parts.push((parts.length > 1 ? ',' : '') + s);
+        }
         // 非 Blob（异常脏数据）跳过
+        originals[i] = null; // 用完即释放 Blob 引用，降低内存占用
       }
+      parts.push(']}');
       prog.indet('正在生成备份文件…');
-      await nextFrame(); // 先绘制进度文字，再执行同步 JSON 序列化
-      const payload = { backup: true, createdAt: Date.now(), data: state, images };
-      const str = JSON.stringify(payload);
-      const blob = new Blob([str], { type: 'application/json' });
+      await nextFrame(); // 先绘制进度文字，再执行同步 Blob 组装
+      const blob = new Blob(parts, { type: 'application/json' });
+      parts.length = 0; // Blob 已拷贝数据，及时释放 base64 字符串
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = 'backup-' + todayStr() + '.json';
+      document.body.appendChild(a); // 部分手机浏览器要求 a 在文档内才会触发下载
       a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-      // 记录本次导出时间（REQ-20260916-003 备份提醒）：payload 已在前面组装，不影响本次备份内容
+      a.remove();
+      // 下载管理器可能延迟数秒才开始读取 blob，过早 revoke 会导致下载失败/
+      // 降级成「访问 blob 链接」→ 无法访问此网站
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      // 记录本次导出时间（REQ-20260916-003 备份提醒）：不影响本次备份文件内容
       updateSettings({ lastExportAt: Date.now() });
       prog.close();
       Toast.show('备份已导出');
