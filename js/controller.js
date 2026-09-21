@@ -24,7 +24,7 @@ const Toast = (() => {
 })();
 
 const Controller = (() => {
-  let state = Store.load();
+  let state = Store.load(); // init() 前为默认占位，App_init 内 await init() 装载真实数据
   const listeners = {};
 
   // ---- 事件总线 ----
@@ -32,6 +32,8 @@ const Controller = (() => {
   function emit(evt, payload) {
     (listeners[evt] || []).forEach(fn => { try { fn(payload); } catch (e) { console.error(e); } });
   }
+  // 启动装载：读 IndexedDB meta（含旧 localStorage 一次性迁移）+ 持久化申请（REQ-20260921-002）
+  async function init() { state = await Store.init(); }
   function getState() { return state; }
   function persist() {
     const ok = Store.save(state);
@@ -282,6 +284,64 @@ const Controller = (() => {
   }
 
   async function exportAll() {
+    // Chrome/Edge 桌面：流式 NDJSON 写盘（REQ-20260921-001），内存峰值≈单张图，数 GB 备份可承受
+    if (window.showSaveFilePicker) {
+      try {
+        await exportStream();
+      } catch (e) {
+        console.error(e);
+        Toast.show('导出失败，请重试', 'warn');
+      }
+      return;
+    }
+    // 降级：Firefox/Safari/手机端走 v1 整包 blob 下载（大数据量可能失败）
+    Toast.show('当前浏览器不支持流式备份，建议使用 Chrome/Edge', 'warn');
+    await exportBlob();
+  }
+
+  // ---- v2 流式导出：NDJSON（首行 meta + 每行一图），逐张读库逐行写盘 ----
+  async function exportStream() {
+    let handle;
+    try {
+      handle = await window.showSaveFilePicker({
+        suggestedName: 'backup-' + todayStr() + '.jsonl',
+        types: [{ description: '备份文件', accept: { 'application/json': ['.jsonl', '.json'] } }]
+      });
+    } catch (e) {
+      if (e && e.name === 'AbortError') return; // 用户取消另存为，静默退出
+      throw e;
+    }
+    const prog = UI.progressModal('导出备份');
+    let w = null;
+    try {
+      const keys = await Store.imageKeys(); // 只取 key 列表，不把图片拉进内存
+      const total = keys.length;
+      if (!total) prog.update(5, '没有图片，正在打包数据…');
+      w = await handle.createWritable();
+      await w.write(JSON.stringify({ v: 2, createdAt: Date.now(), imagesTotal: total, data: state }) + '\n');
+      for (let i = 0; i < total; i++) {
+        prog.update(((i + 1) / (total + 1)) * 95, `正在写入图片 ${i + 1}/${total}`);
+        const blob = await Store.getImage(keys[i]);
+        if (blob instanceof Blob) {
+          await w.write(JSON.stringify({ i: keys[i], d: await blobToDataURL(blob) }) + '\n');
+        }
+        // 非 Blob（异常脏数据）跳过
+      }
+      await w.close();
+      w = null;
+      // 记录本次导出时间（REQ-20260916-003 备份提醒）
+      updateSettings({ lastExportAt: Date.now() });
+      prog.close();
+      Toast.show('备份已导出');
+    } catch (e) {
+      if (w) { try { await w.abort(); } catch (e2) { /* ignore */ } }
+      prog.close();
+      throw e;
+    }
+  }
+
+  // ---- v1 整包导出（降级路径）：单根 JSON + blob 下载 ----
+  async function exportBlob() {
     const prog = UI.progressModal('导出备份');
     try {
       // 只导出原图，跳过缩略图（t_ 前缀），备份更小、结构干净
@@ -289,7 +349,7 @@ const Controller = (() => {
       const total = originals.length;
       if (!total) prog.update(5, '没有图片，正在打包数据…');
       // 分段拼装 JSON：图片边转 base64 边写入 parts，不整体 stringify，
-      // 避免超大字符串把手机内存撑爆（BUG-20260921-001）
+      // 避免超大字符串把内存撑爆（BUG-20260921-001）
       const parts = ['{"backup":true,"createdAt":' + Date.now() + ',"data":' + JSON.stringify(state) + ',"images":['];
       for (let i = 0; i < total; i++) {
         const [bid, blob] = originals[i];
@@ -327,39 +387,81 @@ const Controller = (() => {
     }
   }
 
-  async function importAll(json) {
+  // ---- 导入：流式逐行读，自动识别 v2（NDJSON）与 v1（单根 JSON 整包） ----
+  async function importAll(file) {
     const prog = UI.progressModal('导入备份');
     try {
       prog.indet('正在解析备份文件…');
-      await nextFrame(); // 先绘制进度文字，再执行同步 JSON 解析
-      const parsed = typeof json === 'string' ? JSON.parse(json) : json;
-      if (!parsed || !parsed.backup) throw new Error('非备份文件');
-      // 导入图片：兼容新备份（仅原图）与旧备份（含 t_ 缩略图键，一律跳过，导入后统一重建缩略图）
-      if (Array.isArray(parsed.images)) {
-        const total = parsed.images.length;
-        let restored = 0, thumbSkipped = 0;
-        for (let i = 0; i < total; i++) {
-          prog.update(((i + 1) / (total + 1)) * 90, `正在恢复图片 ${i + 1}/${total}`);
-          const bid = parsed.images[i][0];
-          const val = parsed.images[i][1];
-          if (String(bid).startsWith('t_')) { thumbSkipped++; continue; }
-          if (typeof val === 'string' && val.startsWith('data:')) {
-            const blob = dataURLToBlob(val);
-            await Store.saveImage(bid, blob);
-            // 导入后补生成缩略图，保证跨设备/旧备份体验一致
-            const thumb = await makeThumb(blob);
-            if (thumb) await Store.saveThumb(bid, thumb);
-            restored++;
-          }
-          // 非 dataURL（含旧版空对象）无法恢复，跳过
+      await nextFrame(); // 先绘制进度文字，再开始流式读取
+      const reader = file.stream().getReader();
+      const dec = new TextDecoder('utf-8');
+      let buf = '';
+      let meta = null; // v2 首行
+      let v1 = null;   // v1 整包（v1 文件无换行，整根即一行）
+      let restored = 0, thumbSkipped = 0;
+      async function restoreImage(bid, dataURL) {
+        if (String(bid).startsWith('t_')) { thumbSkipped++; return; }
+        const blob = dataURLToBlob(dataURL);
+        await Store.saveImage(bid, blob);
+        // 导入后补生成缩略图，保证跨设备/旧备份体验一致
+        const thumb = await makeThumb(blob);
+        if (thumb) await Store.saveThumb(bid, thumb);
+        restored++;
+      }
+      async function handleLine(line) {
+        if (!line) return;
+        const obj = JSON.parse(line);
+        if (obj && obj.v === 2 && obj.data) { meta = obj; return; }
+        if (obj && obj.backup === true) { v1 = obj; return; }
+        if (obj && typeof obj.i === 'string' && typeof obj.d === 'string' && obj.d.startsWith('data:')) {
+          await restoreImage(obj.i, obj.d);
+          if (meta) prog.update(10 + (restored / Math.max(1, meta.imagesTotal)) * 85,
+            `正在恢复图片 ${restored}/${meta.imagesTotal}`);
+          return;
         }
-        if (restored < total - thumbSkipped) {
-          Toast.show('部分旧备份图片无法恢复（已跳过）', 'warn');
+        // 无法识别的行：跳过（向前兼容未知字段）
+      }
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, nl);
+          buf = buf.slice(nl + 1);
+          await handleLine(line);
         }
       }
-      prog.indet('正在写入数据…');
-      await nextFrame();
-      Controller.replace(Store.migrate(parsed.data));
+      buf += dec.decode();
+      if (buf) await handleLine(buf);
+
+      if (v1) {
+        // v1 旧备份：images 数组逐条恢复（原逻辑）
+        if (Array.isArray(v1.images)) {
+          const total = v1.images.length;
+          let ok = 0;
+          for (let i = 0; i < total; i++) {
+            prog.update(((i + 1) / (total + 1)) * 90, `正在恢复图片 ${i + 1}/${total}`);
+            const [bid, val] = v1.images[i];
+            if (String(bid).startsWith('t_')) { thumbSkipped++; continue; }
+            if (typeof val === 'string' && val.startsWith('data:')) {
+              await restoreImage(bid, val);
+              ok++;
+            }
+            // 非 dataURL（含旧版空对象）无法恢复，跳过
+          }
+          if (ok + thumbSkipped < total) Toast.show('部分旧备份图片无法恢复（已跳过）', 'warn');
+        }
+        prog.indet('正在写入数据…');
+        await nextFrame();
+        Controller.replace(Store.migrate(v1.data));
+      } else if (meta) {
+        prog.indet('正在写入数据…');
+        await nextFrame();
+        Controller.replace(Store.migrate(meta.data));
+      } else {
+        throw new Error('非备份文件');
+      }
       prog.close();
       Toast.show('导入成功');
       emit('data-restored');
@@ -371,7 +473,7 @@ const Controller = (() => {
   }
 
   return {
-    on, emit, getState, replace, persist,
+    on, emit, init, getState, replace, persist,
     getSettings, updateSettings,
     getStudyLog, logStudy, todayStudyMinutes,
     addTask, updateTask, deleteTask, toggleTask,

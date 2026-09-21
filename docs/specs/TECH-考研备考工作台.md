@@ -11,7 +11,7 @@
 |:---|:---|:---|
 | 形态 | 响应式 Web 单页应用（SPA） | 电脑/手机浏览器通用，零安装 |
 | 语言 | 原生 HTML/CSS/JS（ES6+） | 零框架依赖，打开即用，无需构建/后端 |
-| 存储 | localStorage + IndexedDB | 数据本地永久保存，可导出备份 |
+| 存储 | IndexedDB（结构化数据 + 图片） | 数据本地永久保存，可导出备份；localStorage 仅作一次性迁移源（REQ-20260921-002） |
 | 样式 | 自定义 CSS + CSS 变量 → 日系留白简洁风 | 可控、轻量、符合"不过度花哨" |
 
 ### 1.1 不支持特性的降级（普通浏览器）
@@ -36,7 +36,7 @@
     │   └── components.css    组件（卡片、进度条、表单、弹窗、错题卡…）
     ├── js/
     │   ├── utils.js          日期/倒计时/时长/进度/统计/尺寸格式化工具
-    │   ├── store.js          localStorage + IndexedDB 统一封装（含迁移钩子）
+    │   ├── store.js          IndexedDB 持久层统一封装（含迁移钩子）
     │   ├── controller.js     状态管理（读取/写入，事件总线的发布订阅）
     │   ├── router.js         视图切换（hash 无刷新）
     │   ├── views/            各页面渲染函数（每页一个模块）
@@ -62,7 +62,7 @@ app.js (装配)
   └─ router.js → 决定当前 hash 对应视图
         └─ views/*.js (页面渲染与事件)
               └─ controller.js (业务状态：读写 + 事件发布)
-                    └─ store.js (持久层抽象：localStorage/IndexedDB)
+                    └─ store.js (持久层抽象：IndexedDB)
 ```
 - 每个模块职责单一，通过 `controller` 交换数据，不直接操作 `store`/`localStorage`。
 - 视图层只负责渲染与 DOM 事件，不持有持久化逻辑。
@@ -71,14 +71,18 @@ app.js (装配)
 
 ## 3. 数据存储设计
 
-### 3.1 结构化数据：localStorage
+### 3.1 结构化数据：IndexedDB `meta` store（REQ-20260921-002）
 
-单 key `kylc:data` 存全部 JSON，含版本号以支持迁移：
+数据库 `kylc-images`（版本 2）新增 object store `meta`，单键 `'state'` 存全部 JSON（结构如下，含版本号以支持迁移；完整字段以 `store.js` 的 `defaultData()` 为准）：
+
+- 容量受浏览器磁盘配额（`navigator.storage.estimate()`，通常数 GB），不再受 localStorage ~5–10MB 限制（几千道错题量级的安全前提）
+- 启动时 `await Controller.init()` → `Store.init()`：读 `meta:'state'`；若 IDB 无 state 且 `localStorage['kylc:data']` 有旧数据 → 自动迁入 IDB 并删除 localStorage 键（一次性）；同时 best-effort 申请 `navigator.storage.persist()`，降低磁盘紧张时数据被浏览器回收清空的风险
+- 写路径：`Controller.persist()` → 内存态立即更新 + `Store.save()` 异步落库（fire-and-forget，失败 Toast），业务调用方签名不变
 
 ```jsonc
 {
-  "_version": 1,
-  "settings":   { "examDate": "2026-12-19", "school": "", "targetScore": null, "totalDailyMin": 0, "dailyReviewGoal": 0, "reviewBaseInterval": 3 },
+  "_version": 2,
+  "settings":   { "examDate": "2027-12-18", "school": "", "targetScore": null, "dailyStudyMin": 0, "dailyReviewGoal": 0, "reviewBaseInterval": 3, "dailyReviewCap": -1, "theme": "light", "lastExportAt": null },
   "tasks":      [ { "id":"…", "subject":"…", "title":"…", "dueDate":"…", "priority":"high|mid|low", "done":false, "created":12345 } ],
   "subjects":   { "english": {"enabled":true, "percent":0,"stage":""}, "political":{…}, "math":{…}, "pro":{…} },
   "pastPapers": [ { "id":"…", "subject":"…", "title":"…", "date":"…", "usedTimeMin":0, "score":0, "wrongNum":0 } ],
@@ -101,9 +105,9 @@ app.js (装配)
 
 ### 3.3 状态持久化与容错
 
-- 每次写操作 → 写 localStorage `kylc:data`
+- 每次写操作 → `Store.save()`：内存态立即更新 + 异步写 IndexedDB `meta:'state'`
 - 读时校验 `_version`，低于当前版本走 `migrate()`（默认空实现/可扩展）
-- 存储满（QuotaExceeded）→ 弹提示引导「导出备份 + 清理」
+- 存储满（QuotaExceeded）/ 写入失败 → Toast 提示引导「导出备份 + 清理」
 
 ---
 
@@ -218,9 +222,11 @@ app.js (装配)
 
 ## 8. 导出与备份
 
-- 一键导出全部结构化数据（JSON 下载）+ 图片（递归 `getImage` → Blob 打包或逐张下载）
-- 一键导入恢复（文件选择 `.json` + 图片目录，走 `controller.restore()`）
-- 备份文件名带日期戳：`backup-2026-09-15.json`
+- **v2 流式备份（Chrome/Edge 桌面，REQ-20260921-001）**：`showSaveFilePicker` 弹「另存为」→ `createWritable` 流式写 NDJSON（`.jsonl`）：首行 meta `{"v":2,"createdAt":ms,"imagesTotal":n,"data":{state}}`，之后每行一图 `{"i":blobId,"d":"data:…"}`。图片经 `Store.imageKeys()`（`getAllKeys`，不带 Blob）逐张 `getImage` 读取，内存峰值≈单张图，数 GB 备份（几千道题）可承受；导出内容与 IndexedDB 字节级一致（无压缩）。用户取消另存为（AbortError）静默退出；写盘中途异常 `w.abort()` 丢弃半成品。
+- **导入（全浏览器）**：`Controller.importAll(file)` 用 `file.stream()` + `TextDecoder` 逐行流式解析，自动识别 v2（NDJSON）与 v1（单根 JSON 整包）；图片逐张恢复并重建缩略图（`t_` 键一律跳过），内存峰值≈单张图。v1 文件为无换行单行，整根进内存后 `JSON.parse`（桌面端 ≤~800MB 安全）。
+- **降级导出（Firefox/Safari/手机端）**：无 `showSaveFilePicker` 时走 v1 整包路径——图片转 base64 分段拼装 parts 数组（不整体 stringify）→ `Blob(parts)` 下载，下载链接 60 秒后才 `revokeObjectURL`，`<a>` 先挂载 DOM 再点击（BUG-20260921-001）；导出前 toast 提示建议 Chrome/Edge。
+- 备份文件名带日期戳：v2 `backup-YYYY-MM-DD.jsonl`、v1 `backup-YYYY-MM-DD.json`；导入选择器接受 `.json`/`.jsonl`
+- 备份提醒与容量显示见 REQ-20260916-003（`settings.lastExportAt`）
 
 ---
 

@@ -1,13 +1,15 @@
 /* ===== store.js =====
-   持久层抽象：localStorage 结构化数据 + IndexedDB 图片（Blob）
-   版本迁移钩子、导出/导入、容错 */
+   持久层抽象：IndexedDB 承载结构化数据（meta store）+ 图片（Blob）
+   localStorage 仅作为一次性迁移源（REQ-20260921-002）、版本迁移钩子、导出/导入、容错 */
 
 'use strict';
 
 const Store = (() => {
-  const LS_KEY = 'kylc:data';
+  const LS_KEY = 'kylc:data';          // 旧版 localStorage 键：仅在迁移期读取，迁移成功后删除
   const IDB_DB = 'kylc-images';
   const IDB_STORE = 'images';
+  const IDB_META = 'meta';             // v2：结构化数据 store（REQ-20260921-002）
+  const META_STATE_KEY = 'state';
   const CURRENT_VERSION = 2;
 
   // ---- 默认数据 ----
@@ -59,49 +61,27 @@ const Store = (() => {
     return data;
   }
 
-  // ---- localStorage 读/写 ----
-  function load() {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (!raw) return defaultData();
-      return migrate(JSON.parse(raw));
-    } catch (e) {
-      console.error('load failed', e);
-      return defaultData();
-    }
-  }
-  function save(data) {
-    try {
-      localStorage.setItem(LS_KEY, JSON.stringify(data));
-      return true;
-    } catch (e) {
-      if (e && (e.name === 'QuotaExceededError' || e.code === 22)) {
-        Toast.show('存储空间已满：请导出数据备份后清理', 'warn');
-      } else {
-        console.error('save failed', e);
-      }
-      return false;
-    }
-  }
-
   // ---- IndexedDB 封装（Promise）----
   function idbOpen() {
     return new Promise((resolve, reject) => {
-      const req = indexedDB.open(IDB_DB, 1);
+      const req = indexedDB.open(IDB_DB, 2);
       req.onupgradeneeded = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains(IDB_STORE)) {
           db.createObjectStore(IDB_STORE);  // keyPath 由 put 时给定
+        }
+        if (!db.objectStoreNames.contains(IDB_META)) {
+          db.createObjectStore(IDB_META);   // v2：结构化数据（REQ-20260921-002）
         }
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
   }
-  function idbTx(mode) {
+  function idbTx(mode, storeName = IDB_STORE) {
     return idbOpen().then(db => {
-      const tx = db.transaction(IDB_STORE, mode);
-      const store = tx.objectStore(IDB_STORE);
+      const tx = db.transaction(storeName, mode);
+      const store = tx.objectStore(storeName);
       return new Promise((resolve, reject) => {
         tx.oncomplete = () => { db.close(); resolve(); };
         tx.onerror = () => { db.close(); reject(tx.error); };
@@ -157,13 +137,75 @@ const Store = (() => {
       req.onerror = () => reject(req.error);
     });
   }
+  // 仅取原图 key 列表（跳过 t_ 缩略图），不带 Blob 数据，几万条也很轻（REQ-20260921-001 流式导出用）
+  async function imageKeys() {
+    const { store } = await idbTx('readonly');
+    return new Promise((resolve, reject) => {
+      const req = store.getAllKeys();
+      req.onsuccess = () => resolve(req.result.filter(k => !String(k).startsWith('t_')));
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  // ---- 结构化数据：meta store（REQ-20260921-002）----
+  async function getMeta(key) {
+    const { store } = await idbTx('readonly', IDB_META);
+    return new Promise(resolve => {
+      const req = store.get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  }
+  async function putMeta(key, value) {
+    const { store, done } = await idbTx('readwrite', IDB_META);
+    store.put(value, key);
+    return done;
+  }
+
+  let memState = null;
+
+  // 应用启动时调用一次：装载 state（含旧 localStorage 一次性迁移）+ 申请持久化存储
+  async function init() {
+    let raw = null, fromLS = false;
+    try { raw = await getMeta(META_STATE_KEY); } catch (e) { raw = null; }
+    if (raw == null) {
+      try {
+        const lsRaw = localStorage.getItem(LS_KEY);
+        if (lsRaw) { raw = JSON.parse(lsRaw); fromLS = true; }
+      } catch (e) { raw = null; }
+    }
+    const data = (raw && typeof raw === 'object') ? migrate(raw) : defaultData();
+    if (fromLS) {
+      try {
+        await putMeta(META_STATE_KEY, data);
+        localStorage.removeItem(LS_KEY); // 迁移成功，消除双源歧义；失败则保留下次再试
+      } catch (e) { console.error('migrate to IndexedDB failed', e); }
+    }
+    memState = data;
+    // best-effort 持久化申请：降低磁盘紧张时被浏览器回收清空的风险（无弹窗，浏览器自行决定）
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { /* ignore */ }
+    return data;
+  }
+
+  // 同步读取内存态：init() 前返回默认数据占位，init() 后返回已装载的真实数据
+  function load() { return memState || defaultData(); }
+
+  // 保存：立即更新内存引用 + 异步落 IndexedDB（fire-and-forget，失败 Toast）
+  function save(data) {
+    memState = data;
+    putMeta(META_STATE_KEY, data).catch(e => {
+      console.error('save failed', e);
+      Toast.show('保存失败：存储空间不足或被占用，请导出备份', 'warn');
+    });
+    return true;
+  }
 
   // 供 controller 使用
   function nowMs() { return Date.now(); }
 
   return {
-    LS_KEY, CURRENT_VERSION,
-    defaultData, migrate, load, save,
-    saveImage, saveThumb, getImage, getThumb, deleteImage, allImages
+    CURRENT_VERSION,
+    defaultData, migrate, init, load, save,
+    saveImage, saveThumb, getImage, getThumb, deleteImage, allImages, imageKeys
   };
 })();
