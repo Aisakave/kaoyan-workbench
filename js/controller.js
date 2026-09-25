@@ -388,29 +388,88 @@ const Controller = (() => {
   }
 
   // ---- 导入：流式逐行读，自动识别 v2（NDJSON）与 v1（单根 JSON 整包） ----
+  // 导入安全（REQ-20260922-002 / I-01~I-03）：
+  // ① 写入前配额预检，不足先确认；② 失败自动回滚本次已写入图片（不删导入前
+  // 已存在的同 ID 图，重导同一份备份也不会误伤）；③ 错误按类型给出可读文案
+  function importFail(msg) { const e = new Error(msg); e.userMsg = true; return e; }
+  function importErrMsg(e, hadWritten, cleanupFailed) {
+    let msg;
+    if (e && e.userMsg) msg = e.message;
+    else if (e && e.name === 'QuotaExceededError') msg = '导入中途存储空间不足';
+    else msg = '导入失败：' + ((e && e.message) ? e.message : '未知错误');
+    if (hadWritten) msg += '，已自动撤销本次导入的内容';
+    if (cleanupFailed > 0) msg += `（${cleanupFailed} 张图片未能清理，不影响现有数据）`;
+    return msg;
+  }
   async function importAll(file) {
+    // 配额预检（I-02）：任何写入之前。需求量按文件体积 80% 估——
+    // base64 解码后约 75%，留出缩略图余量。预检本身失败不拦截导入（有回滚兜底）
+    try {
+      if (navigator.storage && navigator.storage.estimate) {
+        const est = await navigator.storage.estimate();
+        const free = Math.max(0, (est.quota || 0) - (est.usage || 0));
+        const needed = file.size * 0.8;
+        if (needed > free) {
+          const go = await new Promise(resolve => {
+            UI.openModal(UI.modalShell('存储空间可能不足',
+              `<p class="modal-msg">这份备份导入约需 ${fmtBytes(needed)} 空间，本机仅剩约 ${fmtBytes(free)}。` +
+              '空间不足会中途失败（已导入部分会自动撤销，不影响现有数据）。仍要尝试导入吗？</p>',
+              `<button class="btn btn-ghost" data-close>取消</button>
+               <button class="btn btn-primary" id="quota-go">仍要导入</button>`), { lock: true });
+            document.getElementById('modalMask')
+              .querySelectorAll('[data-close]')
+              .forEach(b => b.onclick = () => { UI.closeModal(); resolve(false); });
+            document.getElementById('quota-go').onclick = () => { UI.closeModal(); resolve(true); };
+          });
+          if (!go) return;
+        }
+      }
+    } catch (e) { /* 预检失败不拦截 */ }
+
     const prog = UI.progressModal('导入备份');
+    let preExisting = null; // 导入前已有原图 key 快照：回滚时不误删旧图
+    const written = [];     // 本次已写入的原图 blobId（回滚清单）
+    async function rollback() {
+      let failed = 0;
+      for (const bid of written) {
+        if (preExisting && preExisting.has(bid)) continue;
+        try { await Store.deleteImage(bid); }
+        catch (e) { failed++; console.error('rollback delete failed', bid, e); }
+      }
+      return failed;
+    }
     try {
       prog.indet('正在解析备份文件…');
       await nextFrame(); // 先绘制进度文字，再开始流式读取
+      preExisting = new Set(await Store.imageKeys());
       const reader = file.stream().getReader();
       const dec = new TextDecoder('utf-8');
       let buf = '';
       let meta = null; // v2 首行
       let v1 = null;   // v1 整包（v1 文件无换行，整根即一行）
-      let restored = 0, thumbSkipped = 0;
+      let restored = 0, thumbSkipped = 0, lineNo = 0;
       async function restoreImage(bid, dataURL) {
         if (String(bid).startsWith('t_')) { thumbSkipped++; return; }
-        const blob = dataURLToBlob(dataURL);
+        let blob;
+        try { blob = dataURLToBlob(dataURL); }
+        catch (e) { throw importFail('备份中有一张图片数据损坏，无法解码'); }
         await Store.saveImage(bid, blob);
+        written.push(bid); // 落库即登记：后续缩略图失败也需可回滚
         // 导入后补生成缩略图，保证跨设备/旧备份体验一致
         const thumb = await makeThumb(blob);
         if (thumb) await Store.saveThumb(bid, thumb);
         restored++;
       }
       async function handleLine(line) {
+        lineNo++;
         if (!line) return;
-        const obj = JSON.parse(line);
+        let obj;
+        try { obj = JSON.parse(line); }
+        catch (e) {
+          throw importFail(lineNo === 1
+            ? '这不是有效的备份文件（首行不是备份数据）'
+            : `备份文件第 ${lineNo} 行数据损坏`);
+        }
         if (obj && obj.v === 2 && obj.data) { meta = obj; return; }
         if (obj && obj.backup === true) { v1 = obj; return; }
         if (obj && typeof obj.i === 'string' && typeof obj.d === 'string' && obj.d.startsWith('data:')) {
@@ -460,15 +519,21 @@ const Controller = (() => {
         await nextFrame();
         Controller.replace(Store.migrate(meta.data));
       } else {
-        throw new Error('非备份文件');
+        throw importFail('这不是本应用的备份文件（缺少备份数据）');
       }
       prog.close();
       Toast.show('导入成功');
       emit('data-restored');
     } catch (e) {
       console.error(e);
+      let cleanupFailed = 0;
+      if (written.length) {
+        prog.indet('导入出错，正在撤销已导入的内容…');
+        await nextFrame();
+        cleanupFailed = await rollback();
+      }
       prog.close();
-      Toast.show('导入失败：文件格式不正确', 'warn');
+      Toast.show(importErrMsg(e, written.length > 0, cleanupFailed), 'warn');
     }
   }
 
